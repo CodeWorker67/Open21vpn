@@ -1,9 +1,9 @@
 import random
-from datetime import datetime
-from pprint import pprint
+from datetime import datetime, timezone
 
-from bot import sql, x3
+from bot import sql, x3, bot
 from config import ADMIN_IDS
+from keyboard import create_kb
 from logging_config import logger
 import asyncio
 from aiogram import Router, F
@@ -60,17 +60,13 @@ async def user_info(message: Message):
 
 @router.message(Command(commands=['sub']))
 async def set_subscription_date(message: Message):
-    """Установка subscription_end_date или white_subscription_end_date в БД (только БД, не в панели)"""
-
-    # Проверка прав администратора
+    """Установка subscription_end_date или white_subscription_end_date в БД и панели"""
     if message.from_user.id not in ADMIN_IDS:
         await message.answer("❌ Эта команда доступна только администраторам.")
         return
 
     try:
-        # Извлекаем аргументы команды
         args = message.text.split()
-
         if len(args) < 3:
             await message.answer(
                 "❌ Использование:\n"
@@ -85,84 +81,64 @@ async def set_subscription_date(message: Message):
 
         user_id = int(args[1].strip())
 
-        # Определяем тип обновляемого поля
+        # Определяем тип и позицию даты
         if args[2].lower() == 'white':
-            field_type = 'white'
-            # Дата начинается с третьего аргумента
+            is_white = True
             date_str = " ".join(args[3:])
         else:
-            field_type = 'regular'
-            # Дата начинается со второго аргумента
+            is_white = False
             date_str = " ".join(args[2:])
 
-        # Парсим дату и время
-        try:
-            date_formats = [
-                "%Y-%m-%d %H:%M:%S",
-                "%Y-%m-%d %H:%M",
-                "%d.%m.%Y %H:%M:%S",
-                "%d.%m.%Y %H:%M"
-            ]
-
-            subscription_date = None
-            for date_format in date_formats:
-                try:
-                    subscription_date = datetime.strptime(date_str, date_format)
-                    break
-                except ValueError:
-                    continue
-
-            if subscription_date is None:
-                await message.answer(
-                    f"❌ Неверный формат даты: {date_str}\n"
-                    "Используйте формат: YYYY-MM-DD HH:MM:SS\n"
-                    "Пример: 2026-02-01 17:14:27"
-                )
-                return
-
-        except ValueError as e:
-            await message.answer(f"❌ Ошибка парсинга даты: {e}")
+        # Парсим дату
+        date_formats = [
+            "%Y-%m-%d %H:%M:%S",
+            "%Y-%m-%d %H:%M",
+            "%d.%m.%Y %H:%M:%S",
+            "%d.%m.%Y %H:%M"
+        ]
+        target_date = None
+        for fmt in date_formats:
+            try:
+                target_date = datetime.strptime(date_str, fmt)
+                target_date = target_date.replace(tzinfo=timezone.utc)  # панель работает в UTC
+                break
+            except ValueError:
+                continue
+        if target_date is None:
+            await message.answer(f"❌ Неверный формат даты: {date_str}")
             return
 
-        # Проверяем, существует ли пользователь в БД
+        # Проверяем наличие пользователя в БД
         user_data = await sql.get_user(user_id)
-
         if not user_data:
-            await message.answer(f"❌ Пользователь с ID {user_id} не найден в базе данных.")
+            await message.answer("⚠️ Пользователь не найден в БД.")
             return
 
-        # Обновляем соответствующую дату в БД
-        try:
-            if field_type == 'white':
-                await sql.update_white_subscription_end_date(user_id, subscription_date)
-                # Получаем обновлённое значение для проверки (white_subscription_end_date — индекс 10)
-                updated_date = user_data[10] if len(user_data) > 10 else None
-                field_name = "white_subscription_end_date"
-            else:
-                await sql.update_subscription_end_date(user_id, subscription_date)
-                updated_date = await sql.get_subscription_end_date(user_id)
-                field_name = "subscription_end_date"
+        # Формируем username для панели
+        username = str(user_id) + ('_white' if is_white else '')
 
-            await message.answer(
-                f"✅ Дата подписки ({field_name}) успешно обновлена!\n\n"
-                f"👤 Пользователь: {user_id}\n"
-                f"📅 Новая дата окончания: {subscription_date.strftime('%Y-%m-%d %H:%M:%S')}\n"
-                f"📝 Проверка из БД: {updated_date.strftime('%Y-%m-%d %H:%M:%S') if updated_date else 'Ошибка чтения'}\n\n"
-                f"⚠️ Внимание: Изменена только дата в БД. Подписка в панели управления (X3) не изменена."
-            )
+        # Устанавливаем дату в панели
+        success, actual_date = await x3.set_expiration_date(username, target_date, user_id)
 
-            logger.info(
-                f"Администратор {message.from_user.id} изменил {field_name} для пользователя {user_id} на {subscription_date}")
-        except Exception as e:
-            await message.answer(f"❌ Ошибка при обновлении даты в БД: {str(e)}")
-            logger.error(f"Ошибка update_subscription_end_date: {e}")
+        if not success or actual_date is None:
+            await message.answer("❌ Не удалось установить дату в панели. Подробности в логах.")
+            return
 
-    except ValueError:
+        if is_white:
+            await sql.update_white_subscription_end_date(user_id, actual_date)
+        else:
+            await sql.update_subscription_end_date(user_id, actual_date)
+
+        # Сообщаем результат
         await message.answer(
-            "❌ Неверный формат Telegram ID или даты.\n"
-            "Используйте: /sub 123456789 2026-02-01 17:14:27\n"
-            "Или: /sub 123456789 white 2026-02-01 17:14:27"
+            f"✅ Дата подписки успешно установлена!\n\n"
+            f"👤 Пользователь: {user_id}\n"
+            f"📅 Целевая дата (UTC): {target_date.strftime('%Y-%m-%d %H:%M:%S')}\n"
+            f"📅 Установленная в панели дата (UTC): {actual_date.strftime('%Y-%m-%d %H:%M:%S')}\n"
+            f"📝 Тип: {'white' if is_white else 'обычная'}\n"
+            f"💾 База данных обновлена."
         )
+
     except Exception as e:
         logger.error(f"Ошибка в команде /sub: {e}")
         await message.answer(f"❌ Произошла ошибка: {str(e)}")
@@ -257,10 +233,9 @@ async def check_online(message: Message):
     count_pay = 0
     count_trial = 0
     for tg_id in active_telegram_ids:
-        end_date = await sql.get_subscription_end_date(tg_id)
-        if end_date is not None:
-            days_left = (end_date.date() - datetime.now().date()).days
-            if days_left > 5:
+        user_data = await sql.get_user(tg_id)
+        if user_data:
+            if user_data[8]:
                 count_pay += 1
             else:
                 count_trial += 1
@@ -296,16 +271,201 @@ async def check_online(message: Message):
     await message.answer(f"{len(users_x3)} - всего юзеров в панели\n{success_count + fail_count} - подключенных\n{success_count} - обновлено\n{fail_count} - ошибка")
 
 
-@router.message(Command(commands=['check_connect']))
-async def force_check_connect_command(message: Message):
-    """Принудительная проверка подключённых пользователей и обновление Is_tarif в БД"""
+@router.message(Command(commands=['sync_panel']))
+async def sync_panel(message: Message):
     if message.from_user.id not in ADMIN_IDS:
         return
 
-    await message.answer("🔄 Запускаю проверку подключений всех пользователей...")
+    await message.answer("🔄 Запускаю синхронизацию пользователей...")
+
+    # 1. Получаем всех пользователей из панели и строим словарь {telegramId: user_data}
+    users_panel = await x3.get_all_users()
+    panel_dict = {}
+    for user in users_panel:
+        tg_id = user.get('telegramId')
+        if tg_id is not None:
+            panel_dict[tg_id] = user
+
+    # 2. Получаем список пользователей, у которых is_pay_null=True и subscription_end_date=None
+    users_for_sync = await sql.select_subscribed_not_in_chanel()
+
+    # 3. Статистика
+    updated = 0          # обновлено дат в БД
+    added_to_panel = 0   # добавлено в панель
+    not_found = 0        # не найдено в панели (остались в списке)
+
+    # 4. Обрабатываем каждого пользователя из списка на синхронизацию
+    await bot.send_message(1012882762,
+                           'Добрый день. Мы создали Вам личный кабинет и начислили 5 дней пробного '
+                           'доступа.\nПерейдите по ссылке, нажав на кнопку 🔗 Подключить SpeedGamer',
+                           reply_markup=create_kb(1, connect_vpn='🔗 Подключить SpeedGamer'))
+
+    for user_id in users_for_sync:
+        # Проверяем, есть ли пользователь в панели
+        if user_id in panel_dict:
+            user_data = panel_dict[user_id]
+
+            # Получаем expireAt и преобразуем в datetime
+            expire_str = user_data.get('expireAt')
+            if expire_str:
+                try:
+                    expire_dt = datetime.fromisoformat(expire_str.replace('Z', '+00:00'))
+                except Exception as e:
+                    logger.error(f"Ошибка парсинга expireAt для {user_id}: {e}")
+                    continue
+
+                await sql.update_subscription_end_date(user_id, expire_dt)
+                updated += 1
+                logger.info(f"Обновлена дата для {user_id} до {expire_dt}")
+        else:
+            user_id_str = str(user_id)
+            result = await x3.addClient(5, user_id_str, user_id)
+            if result:
+                added_to_panel += 1
+                logger.info(f"Добавлен в панель пользователь {user_id} (day=0)")
+                await bot.send_message(user_id,
+                                       'Добрый день. Мы создали Вам личный кабинет и начислили 5 дней пробного '
+                                       'доступа.\nПерейдите по ссылке, нажав на кнопку 🔗 Подключить SpeedGamer',
+                                       reply_markup=create_kb(1, connect_vpn='🔗 Подключить SpeedGamer'))
+            else:
+                not_found += 1
+                logger.warning(f"Не удалось добавить в панель пользователя {user_id}")
+
+    # 5. Итоговый отчёт
+    report = (
+        f"✅ Синхронизация завершена.\n"
+        f"📊 Всего в панели: {len(users_panel)}\n"
+        f"📋 Ожидало синхронизации: {len(users_for_sync)}\n"
+        f"🔄 Обновлено дат в БД: {updated}\n"
+        f"➕ Добавлено в панель (day=5): {added_to_panel}\n"
+        f"❌ Не удалось добавить (ошибки): {not_found}"
+    )
+    await message.answer(report)
+    logger.info(report)
+
+
+@router.message(Command(commands=['check_users']))
+async def check_users_command(message: Message):
+    """Проверка соответствия дат окончания подписки у оплаченных пользователей (has_discount=True)"""
+    if message.from_user.id not in ADMIN_IDS:
+        return
+
+    await message.answer("🔄 Начинаю проверку пользователей с оплатами...")
+
     try:
-        await check_connect()  # функция уже содержит логику обновления is_connect
-        await message.answer("✅ Проверка завершена. Подробности в логах.")
+        # 1. Получаем список оплаченных пользователей из БД
+        users_with_discount = await sql.get_users_with_payment()
+        total = len(users_with_discount)
+        if total == 0:
+            await message.answer("❌ Нет пользователей с оплатами.")
+            return
+
+        # 2. Получаем всех пользователей из панели (один запрос)
+        panel_users = await x3.get_all_users()
+        logger.info(f"Загружено {len(panel_users)} пользователей из панели")
+
+        # 3. Строим словарь для быстрого поиска по telegramId и username
+        panel_by_telegram = {}      # ключ: telegramId (int)
+        panel_by_username = {}      # ключ: username (str)
+
+        for user in panel_users:
+            tg_id = user.get('telegramId')
+            username = user.get('username')
+            if tg_id is not None:
+                panel_by_telegram[int(tg_id)] = user
+            elif username:
+                panel_by_username[username] = user
+
+        # 4. Проходим по всем оплаченным пользователям и ищем их в панели
+        mismatched = []      # кортежи (user_id, db_date, panel_date) для расхождений >=3ч
+        not_found_in_panel = []  # пользователи, отсутствующие в панели
+        processed = 0
+
+        for user_id in users_with_discount:
+            processed += 1
+            if processed % 10 == 0:
+                logger.info(f"Проверено {processed}/{total}")
+
+            # Пытаемся найти пользователя в панели
+            panel_user = panel_by_telegram.get(user_id)
+            if panel_user is None:
+                panel_user = panel_by_username.get(str(user_id))
+
+            if panel_user is None:
+                not_found_in_panel.append(user_id)
+                continue
+
+            expire_str = panel_user.get('expireAt')
+            if not expire_str:
+                # нет даты в панели – считаем расхождением (panel_date = None)
+                db_expire = await sql.get_subscription_end_date(user_id)
+                mismatched.append((user_id, db_expire, None))
+                continue
+
+            try:
+                panel_expire = datetime.fromisoformat(expire_str.replace('Z', '+00:00'))
+            except Exception:
+                # не удалось распарсить дату панели
+                db_expire = await sql.get_subscription_end_date(user_id)
+                mismatched.append((user_id, db_expire, None))
+                continue
+
+            # Получаем дату из БД (обычная подписка)
+            db_expire = await sql.get_subscription_end_date(user_id)
+            panel_naive = panel_expire.replace(tzinfo=None)
+
+            if db_expire is None:
+                # нет даты в БД
+                mismatched.append((user_id, None, panel_naive))
+                continue
+
+            db_naive = db_expire.replace(tzinfo=None)
+            diff_hours = abs((panel_naive - db_naive).total_seconds()) / 3600
+
+            if diff_hours >= 6:
+                mismatched.append((user_id, db_naive, panel_naive))
+
+        # 5. Формируем отчёт
+        report_lines = []
+        report_lines.append(f"📊 Результаты проверки:\n")
+        report_lines.append(f"👥 Всего проверено: {total}")
+        report_lines.append(f"❌ Расхождений в датах (>=6ч): {len(mismatched)}")
+        report_lines.append(f"🔍 Не найдены в панели: {len(not_found_in_panel)}")
+
+        # Если есть расхождения и их количество не превышает лимит для прямого вывода
+        if mismatched or not_found_in_panel:
+            if len(mismatched) <= 50 and len(not_found_in_panel) <= 50:
+                if mismatched:
+                    report_lines.append("\n🆔 Расхождения (команды для синхронизации):")
+                    for uid, db_dt, panel_dt in mismatched:
+                        db_str = db_dt.strftime('%Y-%m-%d %H:%M:%S') if db_dt else 'None'
+                        panel_str = panel_dt.strftime('%Y-%m-%d %H:%M:%S') if panel_dt else 'None'
+                        report_lines.append(f"/sub {uid} {db_str} /sub {uid} {panel_str}")
+                if not_found_in_panel:
+                    report_lines.append("\n🆔 Не найдены в панели:")
+                    report_lines.extend(str(uid) for uid in not_found_in_panel)
+                await message.answer("\n".join(report_lines))
+            else:
+                # Если много расхождений – отправляем файлом
+                import io
+                text_io = io.StringIO()
+                text_io.write("user_id\tdb_date\tpanel_date\n")
+                for uid, db_dt, panel_dt in mismatched:
+                    db_str = db_dt.strftime('%Y-%m-%d %H:%M:%S') if db_dt else 'None'
+                    panel_str = panel_dt.strftime('%Y-%m-%d %H:%M:%S') if panel_dt else 'None'
+                    text_io.write(f"/sub {uid} {db_str} /sub {uid} {panel_str}\n")
+                for uid in not_found_in_panel:
+                    text_io.write(f"{uid}\tnot_found\n")
+                text_io.seek(0)
+                from aiogram.types import BufferedInputFile
+                file_data = BufferedInputFile(text_io.getvalue().encode(), filename="check_users_report.txt")
+                await message.answer_document(
+                    document=file_data,
+                    caption="\n".join(report_lines[:5])
+                )
+        else:
+            await message.answer("✅ Все оплаченные пользователи синхронизированы (разница менее 3 часов).")
+
     except Exception as e:
-        logger.error(f"Ошибка при выполнении force_check_connect: {e}")
-        await message.answer(f"❌ Произошла ошибка: {e}")
+        logger.exception("Ошибка в /check_users")
+        await message.answer(f"❌ Ошибка: {str(e)}")

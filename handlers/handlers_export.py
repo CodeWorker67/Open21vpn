@@ -1,5 +1,4 @@
 from datetime import datetime
-from pprint import pprint
 
 import openpyxl
 from aiogram import Router
@@ -18,6 +17,7 @@ router = Router()
 async def export_database_to_excel(message: Message):
     """Экспорт базы данных в Excel файл"""
     if message.from_user.id not in ADMIN_IDS:
+        await message.answer("❌ Эта команда доступна только администраторам.")
         return
 
     try:
@@ -26,6 +26,8 @@ async def export_database_to_excel(message: Message):
         # Получаем все данные через асинхронные методы
         users_list = await sql.get_all_users()
         payments_list = await sql.get_all_payments()
+        payments_cards_list = await sql.get_all_payments_cards()
+        payments_platega_crypto_list = await sql.get_all_payments_platega_crypto()
         payments_stars_list = await sql.get_all_payments_stars()
         payments_cryptobot_list = await sql.get_all_payments_cryptobot()
         gifts_list = await sql.get_all_gifts()
@@ -40,8 +42,8 @@ async def export_database_to_excel(message: Message):
         # --- Лист USERS ---
         ws_users = wb.create_sheet(title="users")
         users_columns = [
-            'id', 'user ID', 'ref', 'is_delete', 'in_panel', 'is_connect',
-            'create_user', 'in_chanel', 'reserve_field', 'subscription_end_date',
+            'ID', 'User ID', 'Ref', 'Is_delete', 'in_panel', 'Is_connect',
+            'Create_user', 'in_chanel', 'has_discount', 'subscription_end_date',
             'white_subscription_end_date', 'last_notification_date',
             'last_broadcast_status', 'last_broadcast_date', 'stamp', 'ttclid'
         ]
@@ -112,6 +114,37 @@ async def export_database_to_excel(message: Message):
                     max_len = max(max_len, len(str(cell.value)))
             ws_payments.column_dimensions[col_letter].width = min(max_len + 2, 50)
 
+
+
+        # --- Лист PAYMENTS_CARDS (платежи по картам) ---
+        ws_payments_cards = wb.create_sheet(title="payments_cards")
+        cards_columns = ['ID', 'User ID', 'Amount', 'Time Created', 'Is Gift', 'Status', 'Transaction_Id',
+                         'Payload']
+        for col_num, title in enumerate(cards_columns, 1):
+            cell = ws_payments_cards.cell(row=1, column=col_num, value=title)
+            cell.alignment = header_alignment
+            cell.border = thin_border
+
+        for row_num, pay in enumerate(payments_cards_list, 2):
+            row_data = [
+                pay.id, pay.user_id, pay.amount, pay.time_created,
+                pay.is_gift, pay.status, pay.transaction_id, pay.payload
+            ]
+            for col_num, value in enumerate(row_data, 1):
+                if col_num == 4 and value and isinstance(value, datetime):
+                    value = value.strftime('%Y-%m-%d %H:%M:%S')
+                cell = ws_payments_cards.cell(row=row_num, column=col_num, value=value)
+                cell.border = thin_border
+
+        for col in ws_payments_cards.columns:
+            max_len = 0
+            col_letter = col[0].column_letter
+            for cell in col:
+                if cell.value:
+                    max_len = max(max_len, len(str(cell.value)))
+            ws_payments_cards.column_dimensions[col_letter].width = min(max_len + 2, 50)
+
+
         # --- Лист PAYMENTS_STARS ---
         ws_payments_stars = wb.create_sheet(title="payments_stars")
         stars_columns = ['ID', 'User ID', 'Amount (Stars)', 'Time Created', 'Is Gift', 'Status']
@@ -138,6 +171,37 @@ async def export_database_to_excel(message: Message):
                 if cell.value:
                     max_len = max(max_len, len(str(cell.value)))
             ws_payments_stars.column_dimensions[col_letter].width = min(max_len + 2, 50)
+
+
+
+        # --- Лист PAYMENTS_PLATEGA_CRYPTO ---
+        ws_platega_crypto = wb.create_sheet(title="payments_platega_crypto")
+        platega_crypto_columns = ['ID', 'User ID', 'Amount', 'Time Created', 'Is Gift', 'Status', 'Transaction_Id',
+                                  'Payload']
+        for col_num, title in enumerate(platega_crypto_columns, 1):
+            cell = ws_platega_crypto.cell(row=1, column=col_num, value=title)
+            cell.alignment = header_alignment
+            cell.border = thin_border
+
+        for row_num, pay in enumerate(payments_platega_crypto_list, 2):
+            row_data = [
+                pay.id, pay.user_id, pay.amount, pay.time_created,
+                pay.is_gift, pay.status, pay.transaction_id, pay.payload
+            ]
+            for col_num, value in enumerate(row_data, 1):
+                if col_num == 4 and value and isinstance(value, datetime):
+                    value = value.strftime('%Y-%m-%d %H:%M:%S')
+                cell = ws_platega_crypto.cell(row=row_num, column=col_num, value=value)
+                cell.border = thin_border
+
+        for col in ws_platega_crypto.columns:
+            max_len = 0
+            col_letter = col[0].column_letter
+            for cell in col:
+                if cell.value:
+                    max_len = max(max_len, len(str(cell.value)))
+            ws_platega_crypto.column_dimensions[col_letter].width = min(max_len + 2, 50)
+
 
         # --- Лист PAYMENTS_CRYPTOBOT ---
         ws_payments_cryptobot = wb.create_sheet(title="payments_cryptobot")
@@ -246,8 +310,8 @@ async def export_database_to_excel(message: Message):
             ws_white_counter.column_dimensions[col_letter].width = min(max_len + 2, 50)
 
         # Заморозка заголовков
-        for ws in [ws_users, ws_payments, ws_payments_stars, ws_payments_cryptobot,
-                   ws_gifts, ws_online, ws_white_counter]:
+        for ws in [ws_users, ws_payments, ws_payments_cards, ws_payments_stars, ws_platega_crypto,
+                   ws_payments_cryptobot, ws_gifts, ws_online, ws_white_counter]:
             ws.freeze_panes = ws['A2']
 
         # Сохраняем файл
@@ -257,13 +321,10 @@ async def export_database_to_excel(message: Message):
         users_count = len(users_list)
         gifts_count = len(gifts_list)
         payments_count = len(payments_list)
+        payments_cards_count = len(payments_cards_list)
         payments_stars_count = len(payments_stars_list)
         payments_cryptobot_count = len(payments_cryptobot_list)
-        white_counter_count = len(white_counter_list)
-
-        white_subscription_count = sum(
-            1 for u in users_list if u.white_subscription_end_date is not None
-        )
+        payments_platega_crypto_count = len(payments_platega_crypto_list)
 
         await message.answer_document(
             document=FSInputFile('export.xlsx'),
@@ -272,11 +333,11 @@ async def export_database_to_excel(message: Message):
                     f"📊 Статистика:\n"
                     f"├ 👥 Пользователей: {users_count}\n"
                     f"├ 🎁 Подарков: {gifts_count}\n"
-                    f"├ 💰 Платежей Platega: {payments_count}\n"
+                    f"├ 💰 Платежей Platega СБП: {payments_count}\n"
+                    f"├ 💳 Платежей по картам: {payments_cards_count}\n"
                     f"├ ⭐ Платежей Stars: {payments_stars_count}\n"
-                    f"├ 💎 Крипто-платежей: {payments_cryptobot_count}\n"
-                    f"├ ⚪ White-подписок: {white_subscription_count}\n"
-                    f"└ 👁 White-кликов: {white_counter_count}"
+                    f"├ 💰 Платежей Platega Crypto: {payments_platega_crypto_count}\n"
+                    f"└ 💎 Крипто-платежей: {payments_cryptobot_count}\n"
         )
 
         logger.info(f"Администратор {message.from_user.id} экспортировал базу данных в Excel")
@@ -286,3 +347,97 @@ async def export_database_to_excel(message: Message):
         logger.error(error_message)
         logger.exception("Детали ошибки:")
         await message.answer(error_message)
+
+
+@router.message(Command("export_panel"))
+async def export_panel(message: Message):
+    if message.from_user.id not in ADMIN_IDS:
+        return
+
+    users_x3 = await x3.get_all_panel()
+    total = len(users_x3)
+    await message.answer(f"{total} - всего юзеров в панели. Формирую Excel...")
+
+    if not users_x3:
+        await message.answer("Нет пользователей для экспорта.")
+        return
+
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "panel_users"
+
+    # Заголовки
+    headers = [
+        "username", "telegramId", "expireAt",
+        "shortUuid", "vlessUuid", "trojanPassword", "ssPassword",
+        "description", "squad_uuid"
+    ]
+    ws.append(headers)
+
+    # Стили
+    header_alignment = Alignment(horizontal="center", vertical="center")
+    thin_border = Border(left=Side(style='thin'), right=Side(style='thin'),
+                         top=Side(style='thin'), bottom=Side(style='thin'))
+
+    # Заголовки форматируем
+    for col_num, title in enumerate(headers, 1):
+        cell = ws.cell(row=1, column=col_num, value=title)
+        cell.alignment = header_alignment
+        cell.border = thin_border
+
+    # Заполнение данными
+    for user in users_x3:
+        # Извлекаем squad (первый элемент списка activeInternalSquads, если есть)
+        squad_name = ""
+        squad_uuid = ""
+        if user.get('activeInternalSquads') and len(user['activeInternalSquads']) > 0:
+            squad = user['activeInternalSquads'][0]
+            squad_name = squad.get('name', '')
+            squad_uuid = squad.get('uuid', '')
+
+        # Форматируем даты (если есть)
+        def format_date(dt_str):
+            if dt_str:
+                try:
+                    dt = datetime.fromisoformat(dt_str.replace('Z', '+00:00'))
+                    return dt.strftime('%Y-%m-%d %H:%M:%S')
+                except:
+                    return dt_str
+            return ""
+
+        row_data = [
+            user.get('username', ''),
+            user.get('telegramId', ''),
+            format_date(user.get('expireAt')),
+            user.get('shortUuid', ''),
+            user.get('vlessUuid', ''),
+            user.get('trojanPassword', ''),
+            user.get('ssPassword', ''),
+            user.get('description', ''),
+            squad_uuid
+        ]
+        ws.append(row_data)
+
+    # Автоширина колонок
+    for col in ws.columns:
+        max_len = 0
+        col_letter = col[0].column_letter
+        for cell in col:
+            if cell.value:
+                max_len = max(max_len, len(str(cell.value)))
+        ws.column_dimensions[col_letter].width = min(max_len + 2, 50)
+
+    # Заморозка заголовка
+    ws.freeze_panes = 'A2'
+
+    wb.save('panel.xlsx')
+
+    # Отправляем файл
+    from aiogram.types import BufferedInputFile
+    await message.answer_document(
+        document=FSInputFile('panel.xlsx',
+        filename=f"panel_users_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"),
+        caption=f"📊 Выгружено пользователей из панели: {total}"
+    )
+
+    logger.info(f"Администратор {message.from_user.id} выгрузил список пользователей панели")

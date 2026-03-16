@@ -1,7 +1,6 @@
 from datetime import datetime
 
-from bot import x3, sql
-from handlers.handlers_user import bot
+from bot import x3, sql, bot
 
 from keyboard import create_kb, keyboard_sub_after_buy
 from lexicon import lexicon
@@ -17,7 +16,7 @@ async def process_confirmed_payment(payload):
         white_flag = payload_parts.get('white', 'False') == 'True'
         is_gift = payload_parts.get('gift', 'False') == 'True'
         method = payload_parts.get('method', '')
-        if method in ('sbp', 'stars'):
+        if method in ('sbp', 'stars', 'card', 'crypto'):
             amount = int(payload_parts.get('amount', 0))
         else:
             amount = float(payload_parts.get('amount', 0.0))
@@ -27,7 +26,7 @@ async def process_confirmed_payment(payload):
             f"gift={is_gift}, method={method}, amount={amount}")
 
         # Определяем валюту для сообщения
-        if method == 'sbp':
+        if method in ['sbp', 'card', 'crypto']:
             currency = 'руб'
         elif method == 'stars':
             currency = '⭐️'
@@ -158,6 +157,7 @@ async def process_confirmed_payment(payload):
                 await sql.update_in_panel(user_id)
             else:
                 await sql.add_user(user_id, True)
+            await sql.update_reserve_field(user_id)
 
             # Отправляем уведомление пользователю
             try:

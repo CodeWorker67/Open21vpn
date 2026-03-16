@@ -5,7 +5,6 @@ import uuid
 import urllib3
 import aiohttp
 
-from bot import get_bot_username
 from config import PANEL_API_TOKEN, PANEL_URL, TRUE_SUB_LINK, MIRROR_SUB_LINK
 from config_bd.utils import AsyncSQL
 from logging_config import logger
@@ -104,14 +103,13 @@ class X3:
             client_id = self.generate_client_id(user_id)
             if 'white' in user_id_str:
                 client_id = self.generate_client_id(user_id * 100)
-            current_time = datetime.datetime.utcnow()
+            current_time = datetime.datetime.now(datetime.timezone.utc)
             expire_time = current_time + datetime.timedelta(days=day)
             vless_uuid = str(uuid.uuid1())
 
             if 'white' in user_id_str:
-                squad_1 = ['41d180d4-4f4c-46d7-81f0-76f45356e777']
-                squad_2 = ['db73ace8-663b-4ef4-91da-0bfa7abe6e90']
-                squad = random.choice([squad_1, squad_2])
+                squad_1 = ['86133527-d770-4e0d-a567-75f8309cf22f']
+                squad = squad_1
                 trafficLimitStrategy = "MONTH"
                 trafficLimitBytes = 80530636800
                 hwidDeviceLimit = 1
@@ -122,7 +120,7 @@ class X3:
                 trafficLimitStrategy = "NO_RESET"
                 trafficLimitBytes = 0
                 hwidDeviceLimit = 3
-            desc = await get_bot_username()
+            desc = 'SpeedGamer'
             data = {
                 "username": user_id_str,
                 "status": "ACTIVE",
@@ -351,7 +349,7 @@ class X3:
                 return result
 
             user = users['response'][0]
-            current_time = int(datetime.datetime.utcnow().timestamp() * 1000)
+            current_time = int(datetime.datetime.now(datetime.timezone.utc).timestamp() * 1000)
 
             expiry_time_str = user.get('expireAt')
             if not expiry_time_str:
@@ -380,7 +378,7 @@ class X3:
         lst_users = []
         try:
             users_all = []
-            for i in range(50):
+            for i in range(100):
                 data = await self.list(1000 * i + 1)
                 if data['response']['users']:
                     users_all.extend(data['response']['users'])
@@ -402,22 +400,18 @@ class X3:
         Возвращает список всех пользователей из панели (объекты пользователей),
         у которых description == 'New user - without pay'.
         """
-        lst_users = []
+        users_all = []
         try:
-            users_all = []
-            for i in range(50):  # максимум 50 страниц
+            for i in range(100):  # максимум 50 страниц
                 data = await self.list(1000 * i + 1)
                 if data['response']['users']:
                     users_all.extend(data['response']['users'])
                 else:
                     break
             logger.info(f'Всего юзеров в панели - {len(users_all)}')
-            for user in users_all:
-                if user.get('description') != 'New user - without pay':
-                    lst_users.append(user)
         except Exception as e:
             logger.error(f"Ошибка при получении всех пользователей: {e}")
-        return lst_users
+        return users_all
 
     async def update_user_squads(self, user_uuid: str, squads: list):
         """
@@ -468,7 +462,7 @@ class X3:
         lst_users = []
         try:
             users_all = []
-            for i in range(50):  # максимум 50 страниц
+            for i in range(100):  # максимум 100 страниц
                 data = await self.list(1000 * i + 1)
                 if data['response']['users']:
                     users_all.extend(data['response']['users'])
@@ -480,3 +474,74 @@ class X3:
         except Exception as e:
             logger.error(f"Ошибка при получении всех пользователей: {e}")
         return lst_users
+
+    async def set_expiration_date(self, username: str, target_date: datetime, user_id: int):
+        """
+        Устанавливает точную дату окончания подписки для пользователя в панели.
+        - Если пользователь не существует, создаёт его через addClient (с day=0).
+        - Если target_date меньше текущего времени UTC, заменяет на текущее время + 1 минута.
+        - Возвращает (успех, реальная_установленная_дата_UTC) или (False, None).
+        """
+        now = datetime.datetime.now(datetime.timezone.utc)
+        effective_date = target_date if target_date > now else now + datetime.timedelta(minutes=1)
+
+        # Проверяем существование пользователя
+        user_data = await self.get_user_by_username(username)
+        if not user_data or 'response' not in user_data:
+            # Пользователь отсутствует – создаём
+            if not await self.addClient(0, username, user_id):
+                logger.error(f"Не удалось создать пользователя {username} для установки даты")
+                return False, None
+            # После создания получаем данные заново
+            user_data = await self.get_user_by_username(username)
+            if not user_data or 'response' not in user_data:
+                logger.error(f"Не удалось получить данные созданного пользователя {username}")
+                return False, None
+
+        user = user_data['response']
+        uuid_user = user['uuid']
+
+        # Формируем данные для обновления (сохраняем остальные поля)
+        traffic_limit_bytes = user.get('trafficLimitBytes', 0)
+        traffic_limit_strategy = user.get('trafficLimitStrategy', 'NO_RESET')
+        status = 'ACTIVE'  # Активируем подписку
+        raw_squads = user.get('activeInternalSquads', [])
+        squads = [s['uuid'] if isinstance(s, dict) else s for s in raw_squads]
+
+        data = {
+            "uuid": uuid_user,
+            "expireAt": effective_date.strftime('%Y-%m-%dT%H:%M:%S.%f')[:-3] + 'Z',
+            "status": status,
+            "trafficLimitBytes": traffic_limit_bytes,
+            "trafficLimitStrategy": traffic_limit_strategy,
+            "activeInternalSquads": squads
+        }
+
+        session = await self._get_session()
+        try:
+            async with session.patch(
+                    f"{self.target_url}/api/users",
+                    json=data,
+                    params=self.params,
+                    timeout=aiohttp.ClientTimeout(total=15)
+            ) as response:
+                if response.status == 200:
+                    try:
+                        resp_json = await response.json()
+                        if resp_json.get('success', True):
+                            logger.info(f"✅ Установлена дата {effective_date} для {username}")
+                            return True, effective_date
+                        else:
+                            logger.error(f"Ошибка API при установке даты: {resp_json}")
+                            return False, None
+                    except:
+                        # Нет JSON, но статус 200 – считаем успехом
+                        logger.warning(f"Установка даты для {username} вернула 200 без JSON, считаем успешной")
+                        return True, effective_date
+                else:
+                    error_text = await response.text() if response.content else "No body"
+                    logger.error(f"Ошибка HTTP {response.status} при установке даты: {error_text}")
+                    return False, None
+        except Exception as e:
+            logger.error(f"Исключение при установке даты для {username}: {e}")
+            return False, None

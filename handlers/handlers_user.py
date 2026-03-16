@@ -1,19 +1,18 @@
 import time
-
 import requests
 
-from bot import sql, bot, x3
-from config import CHANEL_ID, ADMIN_IDS
-from keyboard import keyboard_start, keyboard_start_bonus, keyboard_tariff_bonus, keyboard_tariff, \
-    keyboard_subscription, ref_keyboard, keyboard_gift_tariff, check_keyboard, create_kb, \
-    keyboard_payment_method, keyboard_payment_sbp, keyboard_payment_method_stock
+from bot import sql, x3, bot
+from config import CHANEL_ID, BOT_URL
+from keyboard import (keyboard_start, keyboard_start_bonus, keyboard_tariff_bonus, keyboard_tariff,
+                      keyboard_subscription, ref_keyboard, keyboard_gift_tariff, keyboard_payment_method,
+                      chanel_keyboard, keyboard_inline_ref)
 from logging_config import logger
-from payments import pay_platega
 import asyncio
 from aiogram import Router, F
-from aiogram.types import Message, CallbackQuery, ChatMemberUpdated
+from aiogram.types import Message, CallbackQuery, ChatMemberUpdated, InlineQuery, InlineQueryResultArticle, \
+    InputTextMessageContent
 from aiogram.filters import ChatMemberUpdatedFilter, KICKED, MEMBER, Command
-from lexicon import lexicon, dct_price, dct_desc
+from lexicon import lexicon
 
 
 router: Router = Router()
@@ -25,7 +24,6 @@ async def process_start_command(message: Message, command: Command):
 
     user_data = await sql.get_user(message.from_user.id)
     in_panel = False
-    in_chanel = False
     ref_login = ''
     existing = False
     stamp = ''
@@ -33,7 +31,6 @@ async def process_start_command(message: Message, command: Command):
 
     if user_data:
         in_panel = user_data[4]
-        in_chanel = user_data[7]
         existing = True
 
     if len(message.text.split(' ')) == 1:
@@ -121,35 +118,6 @@ async def process_start_command(message: Message, command: Command):
                              disable_web_page_preview=True)
 
 
-@router.callback_query(F.data == 'check_channel')
-async def check_chanel(callback: CallbackQuery):
-    await callback.answer()
-    """Проверка подписки на канал"""
-    try:
-        chat_member = await bot.get_chat_member(
-            chat_id=CHANEL_ID,  # Ваш канал ID
-            user_id=callback.from_user.id
-        )
-
-        if chat_member.status in ["member", "administrator", "creator"]:
-            await sql.update_in_chanel(callback.from_user.id)
-        user_data = await sql.get_user(callback.from_user.id)
-        in_panel = user_data[4] if user_data else False
-
-        if not in_panel:
-            await callback.message.answer(text=lexicon['start_bonus'],
-                                          reply_markup=keyboard_start_bonus(),
-                                          disable_web_page_preview=True)
-        else:
-            await callback.message.answer(text=lexicon['start'],
-                                          reply_markup=keyboard_start(),
-                                          disable_web_page_preview=True)
-
-    except Exception as e:
-        logger.error(f"Error checking subscription: {e}")
-        await callback.answer('Ошибка проверки подписки. Попробуйте позже.', show_alert=True)
-
-
 @router.callback_query(F.data == 'buy_vpn')
 async def buy_vpn_cb(callback: CallbackQuery):
     await callback.answer()
@@ -175,9 +143,12 @@ async def buy_vpn_cb(callback: CallbackQuery):
 async def direct_connect_vpn_cb(callback: CallbackQuery):
     # await x3.test_connect()
     user_id = str(callback.from_user.id)
-    user_id_white = user_id + '_white'
     sub_url = await x3.sublink(user_id)
-    sub_url_white = await x3.sublink(user_id_white)
+    sub_url_white = None
+    user_data = await sql.get_user(callback.from_user.id)
+    if user_data[10]:
+        user_id_white = user_id + '_white'
+        sub_url_white = await x3.sublink(user_id_white)
 
     if not sub_url and not sub_url_white:
         await callback.message.answer(lexicon['no_sub'])
@@ -191,73 +162,21 @@ async def direct_connect_vpn_cb(callback: CallbackQuery):
     await callback.answer()
 
 
-@router.callback_query(F.data.in_({'r_30', 'r_90', 'r_180', 'r_white_30'}))
+@router.callback_query(F.data.in_({'r_30', 'r_90', 'r_240', 'r_white_30'}))
 async def process_payment_method(callback: CallbackQuery):
     await callback.answer()
+    text = lexicon['payment_link']
     if 'white' in callback.data:
         await sql.add_white_counter_if_not_exists(callback.from_user.id)
+        text = lexicon['payment_link_white']
+    text += '\n\nВыберите способ оплаты:'
     tariff = callback.data
-    await callback.message.answer('Выберите метод оплаты:', reply_markup=keyboard_payment_method(tariff))
-
-
-@router.callback_query(F.data.startswith('sbp_'))
-async def process_payment_sbp(callback: CallbackQuery):
-    await callback.answer()
-    gift_flag = False
-    white_flag = False
-    if 'gift_' in callback.data:
-        gift_flag = True
-    duration = callback.data.replace('sbp_r_', '').replace('sbp_gift_r_', '')
-    desc_key = duration
-
-    rub_amount = dct_price[duration]
-    if callback.from_user.id in ADMIN_IDS:
-        rub_amount = 1
-    user_id = str(callback.from_user.id)
-
-    if 'white' in duration:
-        duration = duration.replace('white_', '')
-        white_flag = True
-
-    if gift_flag:
-        payment_info = await pay_platega.pay_for_gift(
-            val=str(rub_amount),
-            des=f"Подписка в подарок {dct_desc[desc_key]}",
-            user_id=user_id,
-            duration=duration,
-            white=white_flag,
-            payment_method=2,  # 2 = СБП QR
-        )
-    else:
-        payment_info = await pay_platega.pay(
-            val=str(rub_amount),
-            des=dct_desc[desc_key],
-            user_id=user_id,
-            duration=duration,
-            white=white_flag,
-            payment_method=2  # 2 = СБП QR
-        )
-
-    if payment_info['status'] == 'pending':
-        try:
-            text = lexicon['payment_link']
-            if white_flag:
-                text = lexicon['payment_link_white']
-            await callback.message.edit_text(
-                text=text,
-                reply_markup=keyboard_payment_sbp("💳 Оплатить через СБП", payment_info['url'])
-            )
-            logger.info(f"Юзер {user_id} создал счет на оплату {'подарка' if gift_flag else ''} {rub_amount} руб")
-            
-        except Exception as e:
-            error_message = f"Ошибка при создании счета: {str(e)}"
-            logger.error(error_message)
-            await callback.message.answer(lexicon['error_payment'], reply_markup=create_kb(1, back_to_main='🔙 Назад'))
+    await callback.message.answer(text, reply_markup=keyboard_payment_method(tariff))
 
 
 @router.callback_query(F.data == 'free_vpn')
 async def free_vpn_cb(callback: CallbackQuery):
-    day = 5
+    day = 3
 
     user_data = await sql.get_user(callback.from_user.id)
     in_panel = False
@@ -284,6 +203,8 @@ async def free_vpn_cb(callback: CallbackQuery):
     await callback.message.answer(text=lexicon['buy_success'].format(time, sub_url),
                                   reply_markup=keyboard_subscription(sub_url, None),
                                   disable_web_page_preview=True)
+    await asyncio.sleep(1)
+    await callback.message.answer(lexicon['to_chanel'], reply_markup=chanel_keyboard())
     await callback.answer()
 
 
@@ -332,10 +253,13 @@ async def gift_subscription_start(callback: CallbackQuery):
 @router.callback_query(F.data.startswith('gift_'))
 async def process_gift_payment_method(callback: CallbackQuery):
     await callback.answer()
+    text = lexicon['payment_link']
     if 'white' in callback.data:
         await sql.add_white_counter_if_not_exists(callback.from_user.id)
+        text = lexicon['payment_link_white']
     tariff = callback.data
-    await callback.message.answer('Выберите метод оплаты подарочной подписки:', reply_markup=keyboard_payment_method(tariff))
+    text += '\n\nВыберите способ оплаты <b>подарочной подписки</b>:'
+    await callback.message.answer(text, reply_markup=keyboard_payment_method(tariff))
 
 
 async def activate_gift(message: Message, gift_id: str):
@@ -428,7 +352,55 @@ async def user_unblocked_bot(event: ChatMemberUpdated):
     logger.success(f'Юзер {event.from_user.id} разблокировал бота')
 
 
-@router.callback_query(F.data == 'r_120')
-async def process_payment_method_bonus(callback: CallbackQuery):
-    tariff = callback.data
-    await callback.message.answer('Выберите метод оплаты акционной подписки:', reply_markup=keyboard_payment_method_stock(tariff))
+@router.chat_member()
+async def handle_chat_member_update(update: ChatMemberUpdated):
+    if str(update.chat.id) != str(CHANEL_ID):
+        return
+    user_id = update.new_chat_member.user.id
+    user_dct = await sql.get_user(user_id)
+
+    if not user_dct:
+        logger.warning(f"User in chanel {user_id} not found in database")
+        return
+
+    if update.old_chat_member.status == "left" and update.new_chat_member.status == "member":
+        await sql.update_in_chanel(user_id, True)
+        logger.success(f"User {user_id} connect to chanel")
+    elif update.old_chat_member.status != "left" and update.new_chat_member.status == "left":
+        await sql.update_in_chanel(user_id, False)
+        logger.warning(f"User {user_id} left chanel")
+
+
+@router.inline_query(lambda query: query.query == 'partner')
+async def inline_partner(inline_query: InlineQuery):
+    user_id = inline_query.from_user.id
+
+    text = f'''
+Привет. Подключись к Open 21 VPN по моей ссылке:
+
+{BOT_URL}?start=ref{user_id}
+
+🚀 Работает быстро
+💫 YouTube без рекламы и лимитов
+👌🏻 Стабильное соединение даже в часы пик
+    '''
+
+    result = InlineQueryResultArticle(
+        id="1",
+        title='🤝🤝🤝 Приглашение',
+        description="Друг, перешедший по этой кнопке станет Вашим рефералом.",
+        input_message_content=InputTextMessageContent(
+            message_text=text,
+            parse_mode='HTML',
+            disable_web_page_preview=False
+        ),
+        reply_markup=keyboard_inline_ref(user_id),
+        thumb_url="https://img.freepik.com/premium-photo/glowing-blue-neon-wifi-signal-icon-dark-background_989822-6238.jpg?semt=ais_hybrid"  # опционально: иконка
+    )
+
+    # Отправляем результат обратно в Telegram
+    await bot.answer_inline_query(
+        inline_query.id,
+        results=[result],
+        cache_time=0
+    )

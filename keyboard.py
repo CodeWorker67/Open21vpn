@@ -27,10 +27,17 @@ def create_kb(width: int,
     if kwargs:
         for button_data, button_text in kwargs.items():
             # Создаем кнопку с текстом и callback-данными
-            buttons.append(InlineKeyboardButton(
-                text=button_text,
-                callback_data=button_data
-            ))
+            if button_text in ['🛒 Купить подписку', '🔥 Попробовать бесплатно']:
+                buttons.append(InlineKeyboardButton(
+                    text=button_text,
+                    callback_data=button_data,
+                    style='success'
+                ))
+            else:
+                buttons.append(InlineKeyboardButton(
+                    text=button_text,
+                    callback_data=button_data
+                ))
 
     # Распаковываем список кнопок в билдер, формируя ряды по width кнопок
     kb_builder.row(*buttons, width=width)
@@ -39,19 +46,13 @@ def create_kb(width: int,
     return kb_builder.as_markup()
 
 
-def check_keyboard():
+def chanel_keyboard():
     # Создаем клавиатуру с инлайн-кнопками
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
         [
             InlineKeyboardButton(
-                text="Подписаться на канал",
+                text="👉Подписаться на канал",
                 url=CHANEL_URL
-            )
-        ],
-        [
-            InlineKeyboardButton(
-                text="Проверить подписку",
-                callback_data="check_channel"
             )
         ]
     ])
@@ -67,7 +68,7 @@ def keyboard_start_bonus():
 def keyboard_start():
     keyboard = create_kb(1,
                          buy_vpn='🛒 Купить подписку',
-                         connect_vpn='🔗 Подключить VPN',
+                         connect_vpn='🔗 Подключить Open 21 VPN',
                          ref='👥 Рефералка',
                          buy_gift='🎁 Подарить подписку',
                          info='💡 Информация')
@@ -76,10 +77,10 @@ def keyboard_start():
 
 def keyboard_tariff_bonus():
     return create_kb(1,
-                     r_30='🤝 30 дней - 99 руб',
-                     r_90='👌 90 дней - 269 руб',
-                     r_180='💪 180 дней - 499 руб',
-                     r_white_30='🦾 Включи мобильный - 299 руб',
+                     r_30='🤝 30 дней - 199 руб',
+                     r_90='👌 90 дней - 539 руб (выгода -10%)',
+                     r_180='💪 240 дней - 999 руб (выгода -40%)',
+                     r_white_30='🦾 Включи мобильный интернет - 299 руб',
                      free_vpn='🔥ПОПРОБОВАТЬ 5 дней БЕСПЛАТНО🔥',
                      back_to_main='🔙 Назад'
                      )
@@ -87,20 +88,20 @@ def keyboard_tariff_bonus():
 
 def keyboard_tariff():
     return create_kb(1,
-                     r_30='🤝 30 дней - 99 руб',
-                     r_90='👌 90 дней - 269 руб',
-                     r_180='💪 180 дней - 499 руб',
-                     r_white_30='🦾 Включи мобильный - 299 руб',
+                     r_30='🤝 30 дней - 199 руб',
+                     r_90='👌 90 дней - 539 руб (выгода -10%)',
+                     r_180='💪 240 дней - 999 руб (выгода -40%)',
+                     r_white_30='🦾 Включи мобильный интернет - 299 руб',
                      back_to_main='🔙 Назад'
                      )
 
 
 def keyboard_gift_tariff():
     return create_kb(1,
-                     gift_r_30='🤝 30 дней - 99 руб',
-                     gift_r_90='👌 90 дней - 269 руб',
-                     gift_r_180='💪 180 дней - 499 руб',
-                     gift_r_white_30='🦾 Включи мобильный - 299 руб',
+                     gift_r_30='🤝 30 дней - 199 руб',
+                     gift_r_90='👌 90 дней - 539 руб (выгода -10%)',
+                     gift_r_240='💪 240 дней - 999 руб (выгода -40%)',
+                     gift_r_white_30='🦾 Включи мобильный интернет - 299 руб',
                      back_to_main='🔙 Назад'
                      )
 
@@ -134,20 +135,24 @@ def keyboard_payment_cancel():
 
 def keyboard_payment_method(tarif):
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="💳 СБП", callback_data=f"sbp_{tarif}")],
+        [InlineKeyboardButton(text="⚡ СБП", callback_data=f"sbp_{tarif}")],
+        [InlineKeyboardButton(text="💳 Карта РФ", callback_data=f"card_{tarif}")],
         [InlineKeyboardButton(text="⭐️ Telegram Stars", callback_data=f"stars_{tarif}")],
-        [InlineKeyboardButton(text="💎 TON", callback_data=f"crypto_ton_{tarif}")],
-        [InlineKeyboardButton(text="💵 USDT", callback_data=f"crypto_usdt_{tarif}")],
-        [InlineKeyboardButton(text="🔙 Назад", callback_data='back_to_buy_menu')],
+        [InlineKeyboardButton(text="💎 Криптовалюта", callback_data=f"crypto_{tarif}")],
+        # [InlineKeyboardButton(text="💎 TON", callback_data=f"crypto_ton_{tarif}")],
+        # [InlineKeyboardButton(text="💵 USDT", callback_data=f"crypto_usdt_{tarif}")],
+        [InlineKeyboardButton(text="🔙 Назад", callback_data='back_to_main')],
     ])
     return keyboard
 
 def keyboard_payment_method_stock(tarif):
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="💳 СБП", callback_data=f"sbp_{tarif}")],
+        [InlineKeyboardButton(text="⚡ СБП", callback_data=f"sbp_{tarif}")],
+        [InlineKeyboardButton(text="💳 Карта РФ", callback_data=f"card_{tarif}")],
         [InlineKeyboardButton(text="⭐️ Telegram Stars", callback_data=f"stars_{tarif}")],
-        [InlineKeyboardButton(text="💎 TON", callback_data=f"crypto_ton_{tarif}")],
-        [InlineKeyboardButton(text="💵 USDT", callback_data=f"crypto_usdt_{tarif}")],
+        [InlineKeyboardButton(text="💎 Криптовалюта", callback_data=f"crypto_{tarif}")],
+        # [InlineKeyboardButton(text="💎 TON", callback_data=f"crypto_ton_{tarif}")],
+        # [InlineKeyboardButton(text="💵 USDT", callback_data=f"crypto_usdt_{tarif}")],
     ])
     return keyboard
 
@@ -170,9 +175,18 @@ def ref_keyboard(user_id):
         [
             InlineKeyboardButton(
                 text="Пригласить друзей🫶",
-                url=f"https://t.me/share/url?url={BOT_URL}?start=ref{user_id}&text={urllib.parse.quote('Вот ссылка для тебя на топовый ВПН!')}"
+                switch_inline_query="partner"
             )
         ],
         [InlineKeyboardButton(text="🔙 Назад", callback_data="back_to_main")]
     ])
     return keyboard
+
+
+def keyboard_inline_ref(user_id):
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(
+            text="🔗 Подключить Open 21 VPN",
+            url=f"{BOT_URL}?start=ref{user_id}")]
+    ]
+    )

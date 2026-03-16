@@ -4,7 +4,8 @@ from sqlalchemy import select, update, func
 from datetime import datetime, date
 from typing import Optional, List, Tuple, Dict
 
-from config_bd.models import AsyncSessionLocal, Users, Payments, Gifts, PaymentsCryptobot, PaymentsStars, Online, WhiteCounter
+from config_bd.models import AsyncSessionLocal, Users, Payments, Gifts, PaymentsCryptobot, PaymentsStars, Online, \
+    WhiteCounter, PaymentsCards, PaymentsPlategaCrypto
 from logging_config import logger
 
 
@@ -50,25 +51,31 @@ class AsyncSQL:
 
     async def update_in_panel(self, user_id: int):
         async with self.session_factory() as session:
-            stmt = update(Users).where(Users.user_id == user_id).values(is_pay_null=True)
+            stmt = update(Users).where(Users.user_id == user_id).values(in_panel=True)
             await session.execute(stmt)
             await session.commit()
 
-    async def update_in_chanel(self, user_id: int):
+    async def update_in_chanel(self, user_id: int, booly: bool):
         async with self.session_factory() as session:
-            stmt = update(Users).where(Users.user_id == user_id).values(is_admin=True)
+            stmt = update(Users).where(Users.user_id == user_id).values(in_chanel=booly)
             await session.execute(stmt)
             await session.commit()
 
     async def update_is_connect(self, user_id: int, booly: bool):
         async with self.session_factory() as session:
-            stmt = update(Users).where(Users.user_id == user_id).values(is_tarif=booly)
+            stmt = update(Users).where(Users.user_id == user_id).values(is_connect=booly)
             await session.execute(stmt)
             await session.commit()
 
     async def update_ttclid(self, user_id: int, ttclid: str):
         async with self.session_factory() as session:
             stmt = update(Users).where(Users.user_id == user_id).values(ttclid=ttclid)
+            await session.execute(stmt)
+            await session.commit()
+
+    async def update_reserve_field(self, user_id: int):
+        async with self.session_factory() as session:
+            stmt = update(Users).where(Users.user_id == user_id).values(reserve_field=True)
             await session.execute(stmt)
             await session.commit()
 
@@ -218,6 +225,18 @@ class AsyncSQL:
             result = await session.execute(stmt)
             return [row[0] for row in result.all()]
 
+
+    async def select_subscribe_yes(self):
+        async with self.session_factory() as session:
+            today = datetime.now().date()
+            stmt = select(Users.user_id).where(
+                Users.in_panel == True,
+                Users.is_delete == False,
+            )
+            result = await session.execute(stmt)
+            return [row[0] for row in result.all()]
+
+
     async def select_connected_never_paid(self) -> List[int]:
         """
         Возвращает список user_id, у которых is_tarif=True, is_delete=False,
@@ -232,16 +251,27 @@ class AsyncSQL:
                 .where(Payments.status == 'confirmed')
                 .union(
                     select(PaymentsStars.user_id).where(PaymentsStars.status == 'confirmed'),
-                    select(PaymentsCryptobot.user_id).where(PaymentsCryptobot.status == 'paid')
+                    select(PaymentsCryptobot.user_id).where(PaymentsCryptobot.status == 'paid'),
+                    select(PaymentsCards.user_id).where(PaymentsCards.status == 'confirmed'),
+                    select(PaymentsPlategaCrypto.user_id).where(PaymentsPlategaCrypto.status == 'confirmed')
                 )
                 .subquery()
             )
             stmt = select(Users.user_id).where(
                 Users.is_connect == True,
                 Users.is_delete == False,
-                (Users.last_broadcast_date.is_(None)) |
-                (func.date(Users.last_broadcast_date) != today),
                 Users.user_id.notin_(paid_subq)
+            )
+            result = await session.execute(stmt)
+            return [row[0] for row in result.all()]
+
+    async def select_subscribed_not_in_chanel(self):
+        async with self.session_factory() as session:
+            # Подзапрос: все пользователи с успешными платежами
+            stmt = select(Users.user_id).where(
+                Users.in_panel == True,
+                Users.subscription_end_date == None,
+                Users.is_delete == False
             )
             result = await session.execute(stmt)
             return [row[0] for row in result.all()]
@@ -280,7 +310,7 @@ class AsyncSQL:
             logger.info(f"Query result for parameter '{parameter}' with value '{value}': {len(rows)}")
             return [row[0] for row in rows]
 
-    async def get_stat_by_ref_or_stamp(self, arg: str) -> Tuple[Optional[int], Optional[int], Optional[int], Optional[int], Optional[str]]:
+    async def get_stat_by_ref_or_stamp(self, arg: str) -> Tuple[Optional[int], Optional[int], Optional[int], Optional[int], Optional[int], Optional[str]]:
         """
         Возвращает статистику по пользователям, у которых Ref == arg,
         если таких нет – по пользователям с stamp == arg.
@@ -296,11 +326,12 @@ class AsyncSQL:
             source = 'stamp'
 
         if not users:
-            return None, None, None, None, None
+            return None, None, None, None, None, None
 
         total = len(users)
         with_sub = 0
         with_tarif = 0
+        with_tarif_not_block = 0
 
         for user_id in users:
             user_data = await self.get_user(user_id)
@@ -310,6 +341,10 @@ class AsyncSQL:
                     with_sub += 1
                 if user_data[5]:  # is_connect
                     with_tarif += 1
+                if user_data[5] and not user_data[3]:
+                    with_tarif_not_block += 1
+        with_tarif = with_tarif // 2
+        with_tarif_not_block = with_tarif_not_block // 2
 
         # Сумма подтверждённых платежей этих пользователей
         total_payments = 0
@@ -321,8 +356,9 @@ class AsyncSQL:
                 )
                 result = await session.execute(stmt)
                 total_payments = result.scalar() or 0
+                total_payments = total_payments // 2
 
-        return total, with_sub, with_tarif, total_payments, source
+        return total, with_sub, with_tarif, with_tarif_not_block, total_payments, source
 
     def get_parameters(self) -> List[str]:
         """Возвращает список доступных параметров для фильтрации пользователей."""
@@ -332,6 +368,8 @@ class AsyncSQL:
             'connected_subscribe_off',
             'connected_subscribe_yes',
             'not_subscribed',
+            'subscribed',
+            'connected_never_paid',
             'connected_never_paid',
             'all_users'
         ]
@@ -480,10 +518,38 @@ class AsyncSQL:
             result = await session.execute(stmt)
             return result.scalars().all()
 
+    async def get_pending_platega_card_payments(self) -> List[PaymentsCards]:
+        """Возвращает все платежи из таблицы payments со статусом 'pending'."""
+        async with self.session_factory() as session:
+            stmt = select(PaymentsCards).where(PaymentsCards.status == 'pending')
+            result = await session.execute(stmt)
+            return result.scalars().all()
+
+    async def get_pending_platega_crypto_payments(self) -> List[PaymentsPlategaCrypto]:
+        """Возвращает все платежи из таблицы payments со статусом 'pending'."""
+        async with self.session_factory() as session:
+            stmt = select(PaymentsPlategaCrypto).where(PaymentsPlategaCrypto.status == 'pending')
+            result = await session.execute(stmt)
+            return result.scalars().all()
+
     async def update_payment_status(self, transaction_id: str, new_status: str) -> None:
         """Обновляет статус платежа по transaction_id."""
         async with self.session_factory() as session:
             stmt = update(Payments).where(Payments.transaction_id == transaction_id).values(status=new_status)
+            await session.execute(stmt)
+            await session.commit()
+
+    async def update_payment_card_status(self, transaction_id: str, new_status: str) -> None:
+        """Обновляет статус платежа по transaction_id."""
+        async with self.session_factory() as session:
+            stmt = update(PaymentsCards).where(PaymentsCards.transaction_id == transaction_id).values(status=new_status)
+            await session.execute(stmt)
+            await session.commit()
+
+    async def update_payment_platega_crypto_status(self, transaction_id: str, new_status: str) -> None:
+        """Обновляет статус платежа по transaction_id."""
+        async with self.session_factory() as session:
+            stmt = update(PaymentsPlategaCrypto).where(PaymentsPlategaCrypto.transaction_id == transaction_id).values(status=new_status)
             await session.execute(stmt)
             await session.commit()
 
@@ -577,28 +643,57 @@ class AsyncSQL:
             session.add(payment)
             try:
                 await session.commit()
-                logger.success(f"💰 Платёж Platega записан: user_id={user_id}, amount={amount}, is_gift={is_gift}")
+                logger.success(f"💰 Платёж Platega SBP записан: user_id={user_id}, amount={amount}, is_gift={is_gift}")
             except Exception as e:
                 await session.rollback()
                 logger.error(f"❌ Ошибка записи платежа Platega: {e}")
                 raise
 
-    async def add_payment(self, user_id: int, amount: int, status: str, transaction_id: str,
-                          is_gift: bool = False) -> None:
+    async def add_platega_card_payment(self, user_id: int, amount: int, status: str, transaction_id: str, payload: str,
+                                       is_gift: bool = False) -> None:
         """
-        Запись платежа Platega в таблицу payments.
+        Записывает платёж PlategaCard в таблицу payments.
         """
         async with self.session_factory() as session:
-            payment = Payments(
+            payment = PaymentsCards(
                 user_id=user_id,
                 amount=amount,
-                is_gift=is_gift,
                 status=status,
-                transaction_id=transaction_id
+                transaction_id=transaction_id,
+                payload=payload,
+                is_gift=is_gift
             )
             session.add(payment)
-            await session.commit()
-            logger.success(f"💰 Платёж Platega записан: user_id={user_id}, amount={amount}, is_gift={is_gift}")
+            try:
+                await session.commit()
+                logger.success(f"💰 Платёж Platega Card записан: user_id={user_id}, amount={amount}, is_gift={is_gift}")
+            except Exception as e:
+                await session.rollback()
+                logger.error(f"❌ Ошибка записи платежа Platega: {e}")
+                raise
+
+    async def add_platega_crypto_payment(self, user_id: int, amount: int, status: str, transaction_id: str, payload: str,
+                                       is_gift: bool = False) -> None:
+        """
+        Записывает платёж PlategaCard в таблицу payments.
+        """
+        async with self.session_factory() as session:
+            payment = PaymentsPlategaCrypto(
+                user_id=user_id,
+                amount=amount,
+                status=status,
+                transaction_id=transaction_id,
+                payload=payload,
+                is_gift=is_gift
+            )
+            session.add(payment)
+            try:
+                await session.commit()
+                logger.success(f"💰 Платёж Platega Crypto записан: user_id={user_id}, amount={amount}, is_gift={is_gift}")
+            except Exception as e:
+                await session.rollback()
+                logger.error(f"❌ Ошибка записи платежа Platega: {e}")
+                raise
 
     async def add_cryptobot_payment(self, user_id: int, amount: float, currency: str, is_gift: bool, invoice_id: str,
                                     payload: str) -> None:
@@ -629,6 +724,17 @@ class AsyncSQL:
         """Возвращает список всех платежей Platega."""
         async with self.session_factory() as session:
             result = await session.execute(select(Payments))
+            return result.scalars().all()
+
+    async def get_all_payments_cards(self) -> List[PaymentsCards]:
+        """Возвращает список всех платежей по картам (PaymentsCards)."""
+        async with self.session_factory() as session:
+            result = await session.execute(select(PaymentsCards))
+            return result.scalars().all()
+
+    async def get_all_payments_platega_crypto(self) -> List[PaymentsPlategaCrypto]:
+        async with self.session_factory() as session:
+            result = await session.execute(select(PaymentsPlategaCrypto))
             return result.scalars().all()
 
     async def get_all_payments_stars(self) -> List[PaymentsStars]:
@@ -672,3 +778,46 @@ class AsyncSQL:
                 session.add(WhiteCounter(user_id=user_id))
                 await session.commit()
                 logger.info(f"✅ Добавлена запись в white_counter для пользователя {user_id}")
+
+    async def set_reserve_field_for_paid_users(self) -> int:
+        """
+        Устанавливает reserve_field = True для всех пользователей,
+        у которых есть хотя бы один подтверждённый платёж в любой из таблиц.
+        Возвращает количество обновлённых записей.
+        """
+        async with self.session_factory() as session:
+            # Подзапросы для каждой таблицы с нужным статусом
+            from sqlalchemy import union, select, update
+
+            subq_payments = select(Payments.user_id).where(Payments.status == 'confirmed')
+            subq_cards = select(PaymentsCards.user_id).where(PaymentsCards.status == 'confirmed')
+            subq_platega_crypto = select(PaymentsPlategaCrypto.user_id).where(
+                PaymentsPlategaCrypto.status == 'confirmed')
+            subq_stars = select(PaymentsStars.user_id).where(PaymentsStars.status == 'confirmed')
+            subq_cryptobot = select(PaymentsCryptobot.user_id).where(PaymentsCryptobot.status == 'paid')
+
+            union_query = union(
+                subq_payments,
+                subq_cards,
+                subq_platega_crypto,
+                subq_stars,
+                subq_cryptobot
+            ).subquery()
+
+            stmt = (
+                update(Users)
+                .where(Users.user_id.in_(union_query))
+                .values(reserve_field=True)
+            )
+            result = await session.execute(stmt)
+            await session.commit()
+            return result.rowcount
+
+    async def get_users_with_payment(self) -> List[int]:
+        """Возвращает список user_id пользователей с has_discount=True и is_delete=False."""
+        async with self.session_factory() as session:
+            stmt = select(Users.user_id).where(
+                Users.reserve_field == True
+            )
+            result = await session.execute(stmt)
+            return [row[0] for row in result.all()]

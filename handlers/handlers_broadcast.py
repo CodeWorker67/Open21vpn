@@ -109,6 +109,8 @@ async def confirm_broadcast(message: Message, state: FSMContext):
         user_ids = await sql.select_connected_subscribe_yes()
     elif selected_parameter == 'not_subscribed':
         user_ids = await sql.select_subscribe_off()
+    elif selected_parameter == 'subscribed':
+        user_ids = await sql.select_subscribe_yes()
     elif selected_parameter == 'connected_never_paid':
         user_ids = await sql.select_connected_never_paid()
 
@@ -147,10 +149,10 @@ async def broadcast_confirm_send(callback: CallbackQuery, state: FSMContext, bot
     # Получаем пользователей по выбранному параметру
     if selected_parameter == "all_users":
         user_ids = await sql.select_all_users()  # Получаем всех пользователей
-        keyboard_broadcast = None
+        keyboard_broadcast = create_kb(1, buy_vpn='🛒 Купить подписку')
     elif selected_parameter == 'not_connected_subscribe_yes':
         user_ids = await sql.select_not_connected_subscribe_yes()
-        keyboard_broadcast = create_kb(1, connect_vpn='🔗 Подключить VPN')
+        keyboard_broadcast = create_kb(1, connect_vpn='🔗 Подключить SpeedGamer')
     elif selected_parameter == 'not_connected_subscribe_off':
         user_ids = await sql.select_not_connected_subscribe_off()
         keyboard_broadcast = create_kb(1, buy_vpn='🛒 Купить подписку')
@@ -163,9 +165,12 @@ async def broadcast_confirm_send(callback: CallbackQuery, state: FSMContext, bot
     elif selected_parameter == 'not_subscribed':
         user_ids = await sql.select_subscribe_off()
         keyboard_broadcast = create_kb(1, free_vpn='🔥 Попробовать бесплатно')
+    elif selected_parameter == 'subscribed':
+        user_ids = await sql.select_subscribe_yes()
+        keyboard_broadcast = create_kb(1, r_white_30='🦾 Включи мобильный интернет - 299 руб')
     elif selected_parameter == 'connected_never_paid':
         user_ids = await sql.select_connected_never_paid()
-        keyboard_broadcast = create_kb(1, r_120='🔥 Акция: 120 дней - 269 руб')
+        keyboard_broadcast = create_kb(1, buy_vpn='🛒 Купить подписку')
 
     # Проверяем, есть ли пользователи для отправки
     if not user_ids:
@@ -189,9 +194,6 @@ async def broadcast_confirm_send(callback: CallbackQuery, state: FSMContext, bot
         except Exception as e:
             await sql.update_broadcast_status(user_id, 'failed')  # Ошибка отправки
             logger.error(f"Failed to send message to {user_id}: {e}")
-            error_text = str(e)
-            if "403" in error_text or "blocked by the user" in error_text:
-                await sql.update_delete(user_id, True)
     logger.success(f"Send broadcast to {count} users")
 
     await callback.message.edit_text(f"Сообщение успешно отправлено {count} пользователям.")
@@ -251,8 +253,6 @@ async def admin_broadcast(message: Message):
 
             # Предположим, что send_message возвращает словарь с ответом Telegram API
             if not response.get("ok") and response.get("error_code") == 403:
-                # Пользователь заблокировал бота → обновляем Is_delete = False
-                await sql.update_delete(user_id, True)
                 blocked_updated += 1
             elif response.get("ok"):
                 success += 1
@@ -263,7 +263,6 @@ async def admin_broadcast(message: Message):
             # Альтернативный вариант, если send_message выбрасывает исключения
             error_text = str(e)
             if "403" in error_text or "blocked by the user" in error_text:
-                await sql.update_delete(user_id, True)
                 blocked_updated += 1
             else:
                 other_errors += 1

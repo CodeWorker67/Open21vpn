@@ -3,7 +3,7 @@ from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker, Asyn
 from sqlalchemy.orm import DeclarativeBase
 from datetime import datetime
 
-DB_URL = "sqlite+aiosqlite:///sqlite3.db"  # или путь к вашей БД
+DB_URL = "sqlite+aiosqlite:///config_bd/open21vpn.db"
 engine = create_async_engine(DB_URL, echo=False)
 AsyncSessionLocal = async_sessionmaker(engine, expire_on_commit=False)
 
@@ -53,6 +53,33 @@ class Payments(Base):
     is_gift = Column(Boolean, default=False)
     status = Column(String, nullable=True)
     transaction_id = Column(String, nullable=True)
+    payload = Column(String, nullable=True)
+
+
+class PaymentsCards(Base):
+    __tablename__ = 'payments_cards'
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    user_id = Column(BigInteger, nullable=False)
+    amount = Column(Integer, nullable=False)
+    time_created = Column(DateTime, default=datetime.now)
+    is_gift = Column(Boolean, default=False)
+    status = Column(String, nullable=True)
+    transaction_id = Column(String, nullable=True)
+    payload = Column(String, nullable=True)
+
+
+class PaymentsPlategaCrypto(Base):
+    __tablename__ = 'payments_platega_crypto'
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    user_id = Column(BigInteger, nullable=False)
+    amount = Column(Integer, nullable=False)
+    time_created = Column(DateTime, default=datetime.now)
+    is_gift = Column(Boolean, default=False)
+    status = Column(String, nullable=True)
+    transaction_id = Column(String, nullable=True)
+    payload = Column(String, nullable=True)
 
 
 class PaymentsStars(Base):
@@ -64,6 +91,7 @@ class PaymentsStars(Base):
     time_created = Column(DateTime, default=datetime.now)
     is_gift = Column(Boolean, default=False)
     status = Column(String, default='confirmed')
+    payload = Column(String, nullable=True)
 
 
 class PaymentsCryptobot(Base):

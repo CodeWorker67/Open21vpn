@@ -4,11 +4,13 @@ __pycache__/
 *$py.class
 sqlite3.db
 export.xlsx
+open21vpn.db
 # C extensions
 *.so
 creds.json
 d.sh
 db/database.db
+config_bd/speedgamer.db
 db/config.db
 load/userbot.py
 load/
