@@ -323,8 +323,11 @@ async def export_database_to_excel(message: Message):
         payments_count = len(payments_list)
         payments_cards_count = len(payments_cards_list)
         payments_stars_count = len(payments_stars_list)
-        payments_cryptobot_count = len(payments_cryptobot_list)
         payments_platega_crypto_count = len(payments_platega_crypto_list)
+
+        successful_payments_count = sum(1 for p in payments_list if p.status == 'confirmed')
+        successful_cards_count = sum(1 for p in payments_cards_list if p.status == 'confirmed')
+        successful_platega_crypto_count = sum(1 for p in payments_platega_crypto_list if p.status == 'confirmed')
 
         await message.answer_document(
             document=FSInputFile('export.xlsx'),
@@ -333,11 +336,10 @@ async def export_database_to_excel(message: Message):
                     f"📊 Статистика:\n"
                     f"├ 👥 Пользователей: {users_count}\n"
                     f"├ 🎁 Подарков: {gifts_count}\n"
-                    f"├ 💰 Платежей Platega СБП: {payments_count}\n"
-                    f"├ 💳 Платежей по картам: {payments_cards_count}\n"
+                    f"├ 💰 Платежей Platega СБП: {successful_payments_count}/{payments_count}\n"
+                    f"├ 💳 Платежей по картам: {successful_cards_count}/{payments_cards_count}\n"
                     f"├ ⭐ Платежей Stars: {payments_stars_count}\n"
-                    f"├ 💰 Платежей Platega Crypto: {payments_platega_crypto_count}\n"
-                    f"└ 💎 Крипто-платежей: {payments_cryptobot_count}\n"
+                    f"└ 💎 Платежей Platega Crypto: {successful_platega_crypto_count}/{payments_platega_crypto_count}\n"
         )
 
         logger.info(f"Администратор {message.from_user.id} экспортировал базу данных в Excel")
