@@ -20,6 +20,12 @@ async def get_video(message: Message):
     await message.answer(message.video.file_id)
 
 
+@router.message(F.photo, F.from_user.id.in_(ADMIN_IDS))
+async def get_photo(message: Message):
+    file_id = message.photo[-1].file_id
+    await message.answer(f"📸 Photo file_id:\n<code>{file_id}</code>", parse_mode='HTML')
+
+
 @router.message(Command(commands=['user']))
 async def user_info(message: Message):
 
