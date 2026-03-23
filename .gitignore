@@ -11,6 +11,7 @@ creds.json
 d.sh
 db/database.db
 config_bd/speedgamer.db
+config_bd/open21vpn.db
 db/config.db
 load/userbot.py
 load/
