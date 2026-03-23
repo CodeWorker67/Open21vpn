@@ -13,67 +13,11 @@ from aiogram.filters import Command
 router = Router()
 
 
-async def _export_shortuuid_from_panel(message: Message):
-    """Синхронизация shortUuid из панели X3 в subscribtion / white_subscription для юзеров из БД."""
-    await message.answer("🔄 Загружаю всех пользователей из панели...")
-    panel_users = await x3.get_all_users()
-    updated_sub = 0
-    updated_white = 0
-    skipped_no_tg = 0
-    skipped_no_short = 0
-    skipped_no_db = 0
-
-    for pu in panel_users:
-        tg = pu.get("telegramId")
-        if tg is None:
-            skipped_no_tg += 1
-            continue
-        tg = int(tg)
-        short_uuid = (pu.get("shortUuid") or "").strip()
-        if not short_uuid:
-            skipped_no_short += 1
-            continue
-
-        user_row = await sql.get_user(tg)
-        if not user_row:
-            skipped_no_db += 1
-            continue
-
-        username = pu.get("username") or ""
-        if "white" in username:
-            await sql.update_white_subscription(tg, short_uuid)
-            updated_white += 1
-        else:
-            await sql.update_subscribtion(tg, short_uuid)
-            updated_sub += 1
-
-    report = (
-        f"✅ Готово.\n"
-        f"В панели записей: {len(panel_users)}\n"
-        f"Обновлено subscribtion: {updated_sub}\n"
-        f"Обновлено white_subscription: {updated_white}\n"
-        f"Пропуск (нет telegramId): {skipped_no_tg}\n"
-        f"Пропуск (нет shortUuid): {skipped_no_short}\n"
-        f"Пропуск (нет в БД бота): {skipped_no_db}"
-    )
-    await message.answer(report)
-    logger.info(f"/export shortuuid: {report}")
-
-
 @router.message(Command(commands=['export']))
 async def export_database_to_excel(message: Message):
     """Экспорт базы данных в Excel файл или /export shortuuid — shortUuid из панели в БД."""
     if message.from_user.id not in ADMIN_IDS:
         await message.answer("❌ Эта команда доступна только администраторам.")
-        return
-
-    parts = (message.text or "").split()
-    if len(parts) >= 2 and parts[1].lower() == "shortuuid":
-        try:
-            await _export_shortuuid_from_panel(message)
-        except Exception as e:
-            logger.exception("export shortuuid")
-            await message.answer(f"❌ Ошибка: {e}")
         return
 
     try:
