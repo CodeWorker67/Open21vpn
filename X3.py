@@ -66,7 +66,7 @@ class X3:
         msg = str(int(tg_id)).encode("utf-8")
         digest = hmac.new(key, msg, hashlib.sha256).digest()
         token = base64.urlsafe_b64encode(digest).decode("ascii").rstrip("=")
-        return token[:10]
+        return token[:15]
 
     def list_from_host(self, host):
         """Заглушка для совместимости со старым кодом"""
