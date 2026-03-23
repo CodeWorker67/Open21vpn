@@ -20,4 +20,5 @@ DOCUMENT_URL_1: Optional[str] = os.environ.get("DOCUMENT_URL_1")
 DOCUMENT_URL_2: Optional[str] = os.environ.get("DOCUMENT_URL_2")
 TRUE_SUB_LINK: Optional[str] = os.environ.get("TRUE_SUB_LINK")
 MIRROR_SUB_LINK: Optional[str] = os.environ.get("MIRROR_SUB_LINK")
+SHORT_UUID_SECRET: Optional[str] = os.environ.get("SHORT_UUID_SECRET")
 

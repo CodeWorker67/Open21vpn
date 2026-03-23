@@ -107,6 +107,20 @@ class AsyncSQL:
             await session.execute(stmt)
             await session.commit()
 
+    async def update_subscribtion(self, user_id: int, value: str):
+        """Поле subscribtion: ссылка или shortUuid обычной подписки."""
+        async with self.session_factory() as session:
+            stmt = update(Users).where(Users.user_id == user_id).values(subscribtion=value)
+            await session.execute(stmt)
+            await session.commit()
+
+    async def update_white_subscription(self, user_id: int, value: str):
+        """Поле white_subscription: ссылка или shortUuid white-подписки."""
+        async with self.session_factory() as session:
+            stmt = update(Users).where(Users.user_id == user_id).values(white_subscription=value)
+            await session.execute(stmt)
+            await session.commit()
+
     async def get_subscription_end_date(self, user_id: int) -> Optional[datetime]:
         async with self.session_factory() as session:
             stmt = select(Users.subscription_end_date).where(Users.user_id == user_id)
