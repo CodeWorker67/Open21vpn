@@ -57,7 +57,7 @@ class X3:
             await self._session.close()
 
     def generate_client_id(self, tg_id):
-        """shortUuid: HMAC-SHA256(секрет, tg_id), 10 символов; white — тот же метод с tg_id*100."""
+        """shortUuid: HMAC-SHA256(секрет, tg_id), 15 символов; white — тот же метод с tg_id*100."""
         if not SHORT_UUID_SECRET:
             raise ValueError(
                 "SHORT_UUID_SECRET не задан в окружении (.env) — нужен для генерации shortUuid"
