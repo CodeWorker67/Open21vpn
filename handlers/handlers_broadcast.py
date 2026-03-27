@@ -121,7 +121,7 @@ async def confirm_broadcast(message: Message, state: FSMContext):
 
     # Создаем клавиатуру для подтверждения
     confirm_keyboard = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="Подтвердить", callback_data="Подтвердить")],
+        [InlineKeyboardButton(text="Подтвердить", callback_data="Подтвердить", style="success")],
         [InlineKeyboardButton(text="🔙 Назад", callback_data="broadcast_cancel")]
     ])
 
