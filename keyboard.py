@@ -84,7 +84,12 @@ def chanel_keyboard():
 
 
 def keyboard_start_bonus():
-    return create_kb(1, free_vpn="🔥 Попробовать бесплатно")
+    return create_kb(
+        1,
+        styles={"free_vpn": STYLE_SUCCESS, "buy_vpn": STYLE_SUCCESS},
+        free_vpn="🔥 Попробовать бесплатно",
+        buy_vpn="🛒 Купить подписку",
+    )
 
 
 def keyboard_start():
@@ -188,6 +193,29 @@ def keyboard_sub_after_buy(sub_url):
                     text="🎁 Подарить подписку",
                     callback_data="buy_gift",
                     style=STYLE_SUCCESS,
+                )
+            ],
+            [InlineKeyboardButton(text="🔙 Назад", callback_data="back_to_main")],
+        ]
+    )
+    return keyboard
+
+
+def keyboard_sub_after_free(sub_url):
+    keyboard = InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text="📋 В личный кабинет",
+                    url=sub_url,
+                    style=STYLE_PRIMARY,
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    text="❌ Если страница не загружается",
+                    callback_data="import",
+                    style=STYLE_DANGER,
                 )
             ],
             [InlineKeyboardButton(text="🔙 Назад", callback_data="back_to_main")],
