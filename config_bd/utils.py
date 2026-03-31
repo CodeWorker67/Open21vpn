@@ -1,7 +1,7 @@
 import uuid
 
-from sqlalchemy import select, update, func
-from datetime import datetime, date
+from sqlalchemy import select, update, func, or_, and_
+from datetime import datetime, date, timezone, timedelta
 from typing import Optional, List, Tuple, Dict, Any
 
 from config_bd.models import AsyncSessionLocal, Users, Payments, Gifts, PaymentsCryptobot, PaymentsStars, Online, \
@@ -141,9 +141,85 @@ class AsyncSQL:
 
     async def mark_notification_as_sent(self, user_id: int):
         async with self.session_factory() as session:
-            stmt = update(Users).where(Users.user_id == user_id).values(last_notification_date=date.today())
+            utc_today = datetime.now(timezone.utc).date()
+            stmt = update(Users).where(Users.user_id == user_id).values(last_notification_date=utc_today)
             await session.execute(stmt)
             await session.commit()
+
+    async def update_field_str_1(self, user_id: int, value: Optional[str]):
+        async with self.session_factory() as session:
+            stmt = update(Users).where(Users.user_id == user_id).values(field_str_1=value)
+            await session.execute(stmt)
+            await session.commit()
+
+    async def select_rows_for_subscription_expiry_push(
+        self, now_utc_naive: datetime, window: timedelta
+    ) -> List[Tuple[int, datetime, bool, Optional[str], Optional[str]]]:
+        """
+        Строки для sheduler.time_mes: user_id, subscription_end_date, reserve_field (платный),
+        ttclid, field_str_1 (JSON состояния push).
+
+        Окна как в time_mes (UTC, naive): за 7/3/1 день и за 1 час до end; после end — каждые 3 дня (p1..p200).
+        """
+        w = window
+        now = now_utc_naive
+
+        active_7 = and_(
+            Users.subscription_end_date > now,
+            Users.subscription_end_date > now + timedelta(days=7) - w,
+            Users.subscription_end_date <= now + timedelta(days=7),
+        )
+        active_3 = and_(
+            Users.subscription_end_date > now,
+            Users.subscription_end_date > now + timedelta(days=3) - w,
+            Users.subscription_end_date <= now + timedelta(days=3),
+        )
+        active_1 = and_(
+            Users.subscription_end_date > now,
+            Users.subscription_end_date > now + timedelta(days=1) - w,
+            Users.subscription_end_date <= now + timedelta(days=1),
+        )
+        active_h = and_(
+            Users.subscription_end_date > now,
+            Users.subscription_end_date > now + timedelta(hours=1) - w,
+            Users.subscription_end_date <= now + timedelta(hours=1),
+        )
+        active_cond = or_(active_7, active_3, active_1, active_h)
+
+        post_pn = []
+        for n in range(1, 201):
+            d = timedelta(days=3 * n)
+            post_pn.append(
+                and_(
+                    Users.subscription_end_date <= now,
+                    Users.subscription_end_date > now - d - w,
+                    Users.subscription_end_date <= now - d,
+                )
+            )
+        expired_cond = or_(*post_pn)
+
+        async with self.session_factory() as session:
+            stmt = (
+                select(
+                    Users.user_id,
+                    Users.subscription_end_date,
+                    Users.reserve_field,
+                    Users.ttclid,
+                    Users.field_str_1,
+                )
+                .where(
+                    Users.is_delete == False,
+                    Users.subscription_end_date.isnot(None),
+                    or_(active_cond, expired_cond),
+                )
+                .order_by(Users.user_id)
+            )
+            result = await session.execute(stmt)
+            rows = result.all()
+            return [
+                (r[0], r[1], bool(r[2]), r[3], r[4])
+                for r in rows
+            ]
 
     async def get_last_notification_date(self, user_id: int) -> Optional[date]:
         async with self.session_factory() as session:
