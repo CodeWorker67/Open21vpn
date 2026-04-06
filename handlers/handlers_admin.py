@@ -2,7 +2,7 @@ import random
 from datetime import datetime, timezone
 
 from bot import sql, x3, bot
-from config import ADMIN_IDS
+from config import ADMIN_IDS, CHECKER_ID
 from keyboard import create_kb
 from logging_config import logger
 import asyncio
@@ -301,10 +301,11 @@ async def sync_panel(message: Message):
     not_found = 0        # не найдено в панели (остались в списке)
 
     # 4. Обрабатываем каждого пользователя из списка на синхронизацию
-    await bot.send_message(1012882762,
-                           'Добрый день. Мы создали Вам личный кабинет и начислили 5 дней пробного '
-                           'доступа.\nПерейдите по ссылке, нажав на кнопку 🔗 Подключить SpeedGamer',
-                           reply_markup=create_kb(1, connect_vpn='🔗 Подключить SpeedGamer'))
+    if CHECKER_ID is not None:
+        await bot.send_message(CHECKER_ID,
+                               'Добрый день. Мы создали Вам личный кабинет и начислили 5 дней пробного '
+                               'доступа.\nПерейдите по ссылке, нажав на кнопку 🔗 Подключить SpeedGamer',
+                               reply_markup=create_kb(1, connect_vpn='🔗 Подключить SpeedGamer'))
 
     for user_id in users_for_sync:
         # Проверяем, есть ли пользователь в панели

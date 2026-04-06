@@ -8,6 +8,7 @@ TG_TEXT_LIMIT = 4096
 from aiogram import Bot
 
 from bot import sql
+from config import CHECKER_ID
 from keyboard import keyboard_tariff, keyboard_tariff_bonus
 from lexicon import lexicon
 from logging_config import logger
@@ -98,12 +99,13 @@ async def send_message_cron(bot: Bot):
     now = _utc_now_naive()
     window_end = now + WINDOW
     candidate_rows = await sql.select_rows_for_subscription_expiry_push(now, WINDOW)
-    await bot.send_message(
-        1012882762,
-        'Начинаю рассылку. Окно UTC+0: '
-        f'{_fmt_utc0(now)} — {_fmt_utc0(window_end)} '
-        f'({WINDOW}). Кандидатов: {len(candidate_rows)}.',
-    )
+    if CHECKER_ID is not None:
+        await bot.send_message(
+            CHECKER_ID,
+            'Начинаю рассылку. Окно UTC+0: '
+            f'{_fmt_utc0(now)} — {_fmt_utc0(window_end)} '
+            f'({WINDOW}). Кандидатов: {len(candidate_rows)}.',
+        )
     sent_count_7 = 0
     sent_count_3 = 0
     sent_count_1 = 0
