@@ -244,7 +244,9 @@ class AsyncSQL:
 
     async def select_all_users(self) -> List[int]:
         async with self.session_factory() as session:
-            stmt = select(Users.user_id).where(Users.is_delete == False)
+            today = date.today()
+            stmt = select(Users.user_id).where(Users.is_delete == False,
+                                               (Users.last_broadcast_date.is_(None)) | (func.date(Users.last_broadcast_date) != today))
             result = await session.execute(stmt)
             return [row[0] for row in result.all()]
 

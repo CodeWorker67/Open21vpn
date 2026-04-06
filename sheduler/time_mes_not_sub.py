@@ -110,7 +110,7 @@ async def send_push_cron(debug: bool = False):
         # Отправляем отчет администратору
         try:
             await bot.send_message(
-                chat_id=1012882762,
+                chat_id=8665578656,
                 text=f"📊 Отчет по push-уведомлениям:\n\n"
                      f"✅ Отправлено не подписанным: {sent_count_not_sub}\n"
                      f"❌ Не удалось отправить не подписанным: {failed_count_not_sub}\n\n"

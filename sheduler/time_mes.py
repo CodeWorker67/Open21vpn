@@ -207,15 +207,8 @@ async def send_message_cron(bot: Bot):
 после окончания каждые 3 дня: {sent_count_week}
 
 Не получилось: {failed_count}
-
-— ID по типам —
-{_format_ids_line('за 7 дней', ids_7)}
-{_format_ids_line('за 3 дня', ids_3)}
-{_format_ids_line('за 1 день', ids_1)}
-{_format_ids_line('за 1 час', ids_0)}
-{_format_ids_line('после окончания (push_off)', ids_week)}
 '''
-    await _send_admin_text_chunks(bot, 1012882762, report_body)
+    await _send_admin_text_chunks(bot, 8665578656, report_body)
     total_sent = len(all_sent_ids)
     logger.info(
         f"Уведомлений отправлено: {total_sent}"
