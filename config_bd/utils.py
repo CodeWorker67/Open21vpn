@@ -162,7 +162,8 @@ class AsyncSQL:
         Строки для sheduler.time_mes: user_id, subscription_end_date, reserve_field (платный),
         ttclid, field_str_1 (JSON состояния push).
 
-        Окна как в time_mes (UTC, naive): за 7/3/1 день и за 1 час до end; после end — каждые 3 дня (p1..p200).
+        Окна как в time_mes (UTC, naive): за 7/3/1 день и за 1 час до end;
+        после end — second_chance (+7 дн) и post-expiry p1..p200 (+3n дн).
         """
         w = window
         now = now_utc_naive
@@ -189,6 +190,11 @@ class AsyncSQL:
         )
         active_cond = or_(active_7, active_3, active_1, active_h)
 
+        post_second = and_(
+            Users.subscription_end_date <= now,
+            Users.subscription_end_date > now - timedelta(days=7) - w,
+            Users.subscription_end_date <= now - timedelta(days=7),
+        )
         post_pn = []
         for n in range(1, 201):
             d = timedelta(days=3 * n)
@@ -199,7 +205,7 @@ class AsyncSQL:
                     Users.subscription_end_date <= now - d,
                 )
             )
-        expired_cond = or_(*post_pn)
+        expired_cond = or_(post_second, *post_pn)
 
         async with self.session_factory() as session:
             stmt = (
@@ -245,8 +251,7 @@ class AsyncSQL:
     async def select_all_users(self) -> List[int]:
         async with self.session_factory() as session:
             today = date.today()
-            stmt = select(Users.user_id).where(Users.is_delete == False,
-                                               (Users.last_broadcast_date.is_(None)) | (func.date(Users.last_broadcast_date) != today))
+            stmt = select(Users.user_id).where(Users.is_delete == False)
             result = await session.execute(stmt)
             return [row[0] for row in result.all()]
 

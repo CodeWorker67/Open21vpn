@@ -7,9 +7,9 @@ TG_TEXT_LIMIT = 4096
 
 from aiogram import Bot
 
-from bot import sql
+from bot import sql, x3
 from config import CHECKER_ID
-from keyboard import keyboard_tariff, keyboard_tariff_bonus
+from keyboard import create_kb, keyboard_tariff, STYLE_PRIMARY
 from lexicon import lexicon
 from logging_config import logger
 
@@ -111,14 +111,16 @@ async def send_message_cron(bot: Bot):
     sent_count_1 = 0
     sent_count_0 = 0
     sent_count_week = 0
+    sent_count_second_chance = 0
     failed_count = 0
     ids_7: List[int] = []
     ids_3: List[int] = []
     ids_1: List[int] = []
     ids_0: List[int] = []
     ids_week: List[int] = []
+    ids_second_chance: List[int] = []
 
-    for user_id, end_raw, is_pay_flag, _ttclid, field_str_1_raw in candidate_rows:
+    for user_id, end_raw, _is_pay_flag, ttclid, field_str_1_raw in candidate_rows:
         try:
             end = _normalize_end_utc(end_raw)
             if end is None:
@@ -127,10 +129,7 @@ async def send_message_cron(bot: Bot):
             end_key = _end_key(end)
             sent = _load_state(field_str_1_raw, end_key)
 
-            if is_pay_flag:
-                keyboard = keyboard_tariff()
-            else:
-                keyboard = keyboard_tariff_bonus()
+            keyboard = keyboard_tariff()
 
             if now < end:
                 t7 = end - timedelta(days=7)
@@ -175,38 +174,92 @@ async def send_message_cron(bot: Bot):
                     ids_0.append(user_id)
                     logger.info(f"Отправлено push-уведомление пользователю {user_id} за 1 час")
             else:
-                n = 1
-                while n <= 200:
-                    moment = end + timedelta(days=3 * n)
-                    if moment > now + WINDOW:
-                        break
-                    key = f'p{n}'
-                    if key not in sent and _in_send_window(now, moment):
-                        await bot.send_message(
-                            chat_id=user_id, text=lexicon['push_off'], reply_markup=keyboard
+                t_second = end + timedelta(days=7)
+                if (
+                    'sc' not in sent
+                    and _in_send_window(now, t_second)
+                    and not ttclid
+                ):
+                    user_id_str = str(user_id)
+                    credited = False
+                    try:
+                        credited = await x3.updateClient(3, user_id_str, user_id)
+                    except Exception as e:
+                        logger.error(
+                            f"Ошибка при добавлении 3 дней пользователю {user_id} (second_chance): {e}"
                         )
-                        await asyncio.sleep(0.05)
-                        sent.add(key)
+                    if not credited:
+                        logger.error(
+                            f"❌ Не начислены 3 дня пользователю {user_id} (second_chance), сообщение не отправляем"
+                        )
+                    else:
+                        try:
+                            await bot.send_message(
+                                chat_id=user_id,
+                                text=lexicon['second_chance_message'],
+                                reply_markup=create_kb(
+                                    1,
+                                    styles={'connect_vpn': STYLE_PRIMARY},
+                                    connect_vpn='🔗 Подключить Open 21 VPN',
+                                ),
+                            )
+                            await asyncio.sleep(0.05)
+                            logger.info(
+                                f"Отправлено push-уведомление пользователю {user_id} за second_chance"
+                            )
+                        except Exception as e:
+                            logger.error(
+                                f"second_chance: дни начислены {user_id}, но не удалось отправить сообщение: {e}"
+                            )
+
+                        utc_today = now.date()
+                        ttclid_value = f"second_chance_{utc_today.strftime('%d%m%y')}"
+                        try:
+                            await sql.update_ttclid(user_id, ttclid_value)
+                            logger.info(f"✅ ttclid для {user_id} установлен: {ttclid_value}")
+                        except Exception as e:
+                            logger.error(f"Ошибка обновления ttclid для {user_id}: {e}")
+
+                        sent.add('sc')
                         await _persist_push_state(user_id, end_key, sent)
-                        await sql.mark_notification_as_sent(user_id)
-                        sent_count_week += 1
-                        ids_week.append(user_id)
-                        logger.info(
-                            f"Отправлено push-уведомление пользователю {user_id} "
-                            f"после окончания подписки (+{3 * n} дн от даты end)"
-                        )
-                        break
-                    n += 1
+                        sent_count_second_chance += 1
+                        ids_second_chance.append(user_id)
+                else:
+                    n = 1
+                    while n <= 200:
+                        moment = end + timedelta(days=3 * n)
+                        if moment > now + WINDOW:
+                            break
+                        key = f'p{n}'
+                        if key not in sent and _in_send_window(now, moment):
+                            await bot.send_message(
+                                chat_id=user_id, text=lexicon['push_off'], reply_markup=keyboard
+                            )
+                            await asyncio.sleep(0.05)
+                            sent.add(key)
+                            await _persist_push_state(user_id, end_key, sent)
+                            await sql.mark_notification_as_sent(user_id)
+                            sent_count_week += 1
+                            ids_week.append(user_id)
+                            logger.info(
+                                f"Отправлено push-уведомление пользователю {user_id} "
+                                f"после окончания подписки (+{3 * n} дн от даты end)"
+                            )
+                            break
+                        n += 1
         except Exception:
             failed_count += 1
 
-    all_sent_ids: List[int] = ids_7 + ids_3 + ids_1 + ids_0 + ids_week
+    all_sent_ids: List[int] = (
+        ids_7 + ids_3 + ids_1 + ids_0 + ids_week + ids_second_chance
+    )
     report_body = f'''Рассылка об окончании подписки (UTC, окна 10 мин):
 за 7 дней: {sent_count_7}
 за 3 дня: {sent_count_3}
 за 1 день: {sent_count_1}
 за 1 час: {sent_count_0}
 после окончания каждые 3 дня: {sent_count_week}
+повторный триал: {sent_count_second_chance}
 
 Не получилось: {failed_count}
 '''
