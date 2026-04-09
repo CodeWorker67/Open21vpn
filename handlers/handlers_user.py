@@ -203,8 +203,8 @@ async def free_vpn_cb(callback: CallbackQuery):
     await callback.message.answer(text=lexicon['buy_success'].format(time, sub_url),
                                   reply_markup=keyboard_sub_after_free(sub_url),
                                   disable_web_page_preview=True)
-    await asyncio.sleep(1)
-    await callback.message.answer(lexicon['to_chanel'], reply_markup=chanel_keyboard())
+    # await asyncio.sleep(1)
+    # await callback.message.answer(lexicon['to_chanel'], reply_markup=chanel_keyboard())
     await callback.answer()
 
 
