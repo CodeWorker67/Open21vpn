@@ -263,7 +263,8 @@ async def send_message_cron(bot: Bot):
 
 Не получилось: {failed_count}
 '''
-    await _send_admin_text_chunks(bot, 8665578656, report_body)
+    if CHECKER_ID is not None:
+        await _send_admin_text_chunks(bot, CHECKER_ID, report_body)
     total_sent = len(all_sent_ids)
     logger.info(
         f"Уведомлений отправлено: {total_sent}"
