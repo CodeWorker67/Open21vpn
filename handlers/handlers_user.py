@@ -3,7 +3,7 @@ import requests
 
 from bot import sql, x3, bot
 from config import CHANEL_ID, BOT_URL
-from keyboard import (keyboard_start, keyboard_start_bonus, keyboard_tariff_bonus, keyboard_tariff,
+from keyboard import (create_kb, keyboard_start, keyboard_start_bonus, keyboard_tariff_bonus, keyboard_tariff,
                       keyboard_subscription, keyboard_sub_after_free, ref_keyboard, keyboard_gift_tariff,
                       keyboard_payment_method, chanel_keyboard, keyboard_inline_ref)
 from logging_config import logger
@@ -320,6 +320,15 @@ async def activate_gift(message: Message, gift_id: str):
         if await sql.get_user(message.from_user.id) is None:
             await sql.add_user(message.from_user.id, False)
         return False
+
+
+@router.callback_query(F.data == 'video_faq')
+async def video_faq(callback: CallbackQuery):
+    await callback.answer()
+    await callback.message.answer_video(
+        video='BAACAgIAAxkBAAKIYWnWDd4OJwPA5mR1aXU-5dn1EOQcAAJ8mwAC2A-oSr8AAR_vM6zHLzsE',
+        reply_markup=create_kb(1, back_to_main='🔙 Назад'),
+    )
 
 
 @router.callback_query(F.data == 'back_to_buy_menu')
