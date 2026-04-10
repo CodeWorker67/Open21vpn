@@ -224,17 +224,21 @@ async def check_online(message: Message):
 
     active_telegram_ids = []
     for user in users_x3:
-        if user['userTraffic']['firstConnectedAt']:
-            connected_str = user['userTraffic']['onlineAt']
-            try:
-                connected_dt = datetime.fromisoformat(connected_str.replace('Z', '+00:00'))
-                connected_date = connected_dt.date()
-                if connected_date == datetime.now().date():
-                    telegram_id = user.get('telegramId')
-                    if telegram_id is not None:
-                        active_telegram_ids.append(int(telegram_id))
-            except (ValueError, TypeError):
-                continue
+        traffic = user.get('userTraffic') or {}
+        if not traffic.get('firstConnectedAt'):
+            continue
+        connected_str = traffic.get('onlineAt')
+        if not connected_str:
+            continue
+        try:
+            connected_dt = datetime.fromisoformat(connected_str.replace('Z', '+00:00'))
+            connected_date = connected_dt.date()
+            if connected_date == datetime.now().date():
+                telegram_id = user.get('telegramId')
+                if telegram_id is not None:
+                    active_telegram_ids.append(int(telegram_id))
+        except (ValueError, TypeError):
+            continue
 
     count_pay = 0
     count_trial = 0
