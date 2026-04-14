@@ -334,14 +334,14 @@ def keyboard_payment_method(tarif):
             [
                 InlineKeyboardButton(
                     text="⚡ СБП",
-                    callback_data=f"sbp_{tarif}",
+                    callback_data=f"wata_sbp_{tarif}",
                     style=STYLE_SUCCESS,
                 )
             ],
             [
                 InlineKeyboardButton(
                     text="💳 Карта РФ",
-                    callback_data=f"card_{tarif}",
+                    callback_data=f"wata_card_{tarif}",
                     style=STYLE_PRIMARY,
                 )
             ],
@@ -371,14 +371,14 @@ def keyboard_payment_method_stock(tarif):
             [
                 InlineKeyboardButton(
                     text="⚡ СБП",
-                    callback_data=f"sbp_{tarif}",
+                    callback_data=f"wata_sbp_{tarif}",
                     style=STYLE_SUCCESS,
                 )
             ],
             [
                 InlineKeyboardButton(
                     text="💳 Карта РФ",
-                    callback_data=f"card_{tarif}",
+                    callback_data=f"wata_card_{tarif}",
                     style=STYLE_PRIMARY,
                 )
             ],
