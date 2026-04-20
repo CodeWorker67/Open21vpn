@@ -10,6 +10,8 @@ STYLE_PRIMARY = "primary"
 STYLE_SUCCESS = "success"
 STYLE_DANGER = "danger"
 
+BTN_BACK = "🔙 Назад"
+
 _DEFAULT_CALLBACK_STYLES: dict[str, str] = {
     "buy_vpn": STYLE_SUCCESS,
     "free_vpn": STYLE_SUCCESS,
