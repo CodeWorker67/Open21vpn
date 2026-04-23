@@ -14,7 +14,7 @@ BTN_BACK = "🔙 Назад"
 
 _DEFAULT_CALLBACK_STYLES: dict[str, str] = {
     "buy_vpn": STYLE_SUCCESS,
-    "free_vpn": STYLE_SUCCESS,
+    "r_3": STYLE_SUCCESS,
     "connect_vpn": STYLE_PRIMARY,
     "ref": STYLE_PRIMARY,
     "buy_gift": STYLE_SUCCESS,
@@ -60,10 +60,10 @@ def create_kb(
 
 
 _STYLES_TARIFF = {
+    "r_3": STYLE_SUCCESS,
     "r_30": STYLE_PRIMARY,
     "r_90": STYLE_PRIMARY,
     "r_240": STYLE_SUCCESS,
-    "free_vpn": STYLE_SUCCESS,
 }
 
 _STYLES_GIFT = {
@@ -89,9 +89,9 @@ def chanel_keyboard():
 def keyboard_start_bonus():
     return create_kb(
         1,
-        styles={"free_vpn": STYLE_SUCCESS, "buy_vpn": STYLE_SUCCESS},
-        free_vpn="🔥 Попробовать бесплатно",
-        buy_vpn="🛒 Купить подписку",
+        styles={"r_3": STYLE_SUCCESS, "buy_vpn": STYLE_SUCCESS},
+        r_3="🔥 10 ₽ на 3 дня",
+        buy_vpn="🛒 Купить от 120₽ в месяц",
     )
 
 
@@ -112,7 +112,7 @@ def keyboard_tariff_bonus():
         r_30="🤝 30 дней - 199 руб",
         r_90="👌 90 дней - 539 руб (выгода -10%)",
         r_240="💪 240 дней - 999 руб (выгода -40%)",
-        free_vpn="🔥ПОПРОБОВАТЬ 5 дней БЕСПЛАТНО🔥",
+        r_3="🔥 10 ₽ на 3 дня",
         back_to_main="🔙 Назад",
     )
 
@@ -120,7 +120,7 @@ def keyboard_tariff_bonus():
 def keyboard_tariff():
     return create_kb(
         1,
-        styles={k: v for k, v in _STYLES_TARIFF.items() if k != "free_vpn"},
+        styles={k: v for k, v in _STYLES_TARIFF.items() if k != "r_3"},
         r_30="🤝 30 дней - 199 руб",
         r_90="👌 90 дней - 539 руб (выгода -10%)",
         r_240="💪 240 дней - 999 руб (выгода -40%)",
