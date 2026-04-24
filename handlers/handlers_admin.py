@@ -240,12 +240,13 @@ async def check_online(message: Message):
         except (ValueError, TypeError):
             continue
 
+    full_tariff_ids = await sql.user_ids_with_full_tariff_payment(active_telegram_ids)
     count_pay = 0
     count_trial = 0
     for tg_id in active_telegram_ids:
         user_data = await sql.get_user(tg_id)
         if user_data:
-            if user_data[8]:
+            if tg_id in full_tariff_ids:
                 count_pay += 1
             else:
                 count_trial += 1

@@ -2,11 +2,23 @@ import uuid
 
 from sqlalchemy import select, update, func, or_, and_
 from datetime import datetime, date, timezone, timedelta
-from typing import Optional, List, Tuple, Dict, Any
+from typing import Optional, List, Tuple, Dict, Any, Set
 
 from config_bd.models import AsyncSessionLocal, Users, Payments, Gifts, PaymentsCryptobot, PaymentsStars, Online, \
     WhiteCounter, PaymentsCards, PaymentsPlategaCrypto, PaymentsWataSBP, PaymentsWataCard
+from lexicon import TRIAL_TARIFF_PAYMENT_RUB
 from logging_config import logger
+
+_CRYPTO_TARIFF_RUB = {
+    'TON': {'0.9': 99, '2.5': 269, '2.8': 299, '4.6': 499},
+    'USDT': {'1.3': 99, '3.5': 269, '4.0': 299, '6.5': 499},
+}
+
+
+def _cryptobot_payment_rub_equiv(currency: Optional[str], amount_str: str) -> int:
+    if not currency:
+        return 0
+    return _CRYPTO_TARIFF_RUB.get(currency, {}).get(amount_str, 0)
 
 # Пакетная обработка для /stat: меньше 999 — лимит переменных SQLite в одном запросе.
 _STAT_IN_CHUNK = 900
@@ -35,6 +47,94 @@ class AsyncSQL:
                     user.field_bool_1, user.field_bool_2, user.field_bool_3,
                 )
             return None
+
+    async def user_ids_with_full_tariff_payment(self, user_ids: List[int]) -> Set[int]:
+        """
+        Пользователи с подтверждённым не-подарочным платежом дороже пробного (10 ₽ / 10 XTR).
+        Оплата только пробного периода сюда не входит.
+        """
+        if not user_ids:
+            return set()
+        trial = TRIAL_TARIFF_PAYMENT_RUB
+        uniq = list({int(u) for u in user_ids})
+        out: Set[int] = set()
+        chunks = [uniq[i : i + _STAT_IN_CHUNK] for i in range(0, len(uniq), _STAT_IN_CHUNK)]
+        async with self.session_factory() as session:
+            for chunk in chunks:
+                stmt_p = select(Payments.user_id).distinct().where(
+                    Payments.user_id.in_(chunk),
+                    Payments.status == 'confirmed',
+                    Payments.is_gift == False,
+                    Payments.amount > trial,
+                    Payments.amount != 1,
+                )
+                for (uid,) in (await session.execute(stmt_p)).all():
+                    out.add(int(uid))
+
+                stmt_cards = select(PaymentsCards.user_id).distinct().where(
+                    PaymentsCards.user_id.in_(chunk),
+                    PaymentsCards.status == 'confirmed',
+                    PaymentsCards.is_gift == False,
+                    PaymentsCards.amount > trial,
+                    PaymentsCards.amount != 1,
+                )
+                for (uid,) in (await session.execute(stmt_cards)).all():
+                    out.add(int(uid))
+
+                stmt_pc = select(PaymentsPlategaCrypto.user_id).distinct().where(
+                    PaymentsPlategaCrypto.user_id.in_(chunk),
+                    PaymentsPlategaCrypto.status == 'confirmed',
+                    PaymentsPlategaCrypto.is_gift == False,
+                    PaymentsPlategaCrypto.amount > trial,
+                    PaymentsPlategaCrypto.amount != 1,
+                )
+                for (uid,) in (await session.execute(stmt_pc)).all():
+                    out.add(int(uid))
+
+                stmt_ws = select(PaymentsWataSBP.user_id).distinct().where(
+                    PaymentsWataSBP.user_id.in_(chunk),
+                    PaymentsWataSBP.status == 'confirmed',
+                    PaymentsWataSBP.is_gift == False,
+                    PaymentsWataSBP.amount > trial,
+                    PaymentsWataSBP.amount != 1,
+                )
+                for (uid,) in (await session.execute(stmt_ws)).all():
+                    out.add(int(uid))
+
+                stmt_wc = select(PaymentsWataCard.user_id).distinct().where(
+                    PaymentsWataCard.user_id.in_(chunk),
+                    PaymentsWataCard.status == 'confirmed',
+                    PaymentsWataCard.is_gift == False,
+                    PaymentsWataCard.amount > trial,
+                    PaymentsWataCard.amount != 1,
+                )
+                for (uid,) in (await session.execute(stmt_wc)).all():
+                    out.add(int(uid))
+
+                stmt_st = select(PaymentsStars.user_id).distinct().where(
+                    PaymentsStars.user_id.in_(chunk),
+                    PaymentsStars.status == 'confirmed',
+                    PaymentsStars.is_gift == False,
+                    PaymentsStars.amount > trial,
+                )
+                for (uid,) in (await session.execute(stmt_st)).all():
+                    out.add(int(uid))
+
+                stmt_cr = select(
+                    PaymentsCryptobot.user_id,
+                    PaymentsCryptobot.amount,
+                    PaymentsCryptobot.currency,
+                ).where(
+                    PaymentsCryptobot.user_id.in_(chunk),
+                    PaymentsCryptobot.status == 'paid',
+                    PaymentsCryptobot.is_gift == False,
+                    PaymentsCryptobot.amount > 0.02,
+                )
+                for uid, amt, cur in (await session.execute(stmt_cr)).all():
+                    rub = _cryptobot_payment_rub_equiv(cur, str(amt))
+                    if rub > trial:
+                        out.add(int(uid))
+        return out
 
     async def add_user(self, user_id: int, in_panel: bool, is_connect: bool = False,
                      ref: str = '', is_delete: bool = False, in_chanel: bool = False,

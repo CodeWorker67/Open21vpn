@@ -298,6 +298,9 @@ dct_price = {
     'white_30': 299
 }
 
+# Сумма платного пробного тарифа (dct_price['3']). Только такие платежи не считаются «полной» подпиской в /online, check_online_daily и anal_export.
+TRIAL_TARIFF_PAYMENT_RUB = dct_price['3']
+
 dct_desc = {
     '3': '🔥 Пробный период 3 дня — 10 ₽',
     '30': '🤝 30 дней - 199 руб',

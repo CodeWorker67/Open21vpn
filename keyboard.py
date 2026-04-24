@@ -89,7 +89,7 @@ def chanel_keyboard():
 def keyboard_start_bonus():
     return create_kb(
         1,
-        styles={"r_3": STYLE_SUCCESS, "buy_vpn": STYLE_SUCCESS},
+        styles={"r_3": STYLE_SUCCESS, "buy_vpn": STYLE_PRIMARY},
         r_3="🔥 10 ₽ на 3 дня",
         buy_vpn="🛒 Купить от 120₽ в месяц",
     )
