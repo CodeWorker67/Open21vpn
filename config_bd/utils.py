@@ -690,8 +690,18 @@ class AsyncSQL:
                     PaymentsWataCard.status == 'confirmed',
                 )
                 total_payments += (await session.execute(stmt_wata_card)).scalar() or 0
-
-        total_payments //= 2
+                stmt_st = select(PaymentsStars.amount).where(
+                    PaymentsStars.user_id.in_(chunk),
+                    PaymentsStars.status == 'confirmed',
+                )
+                for (amt_st,) in (await session.execute(stmt_st)).all():
+                    total_payments += amt_st
+                stmt_cb = select(PaymentsCryptobot.amount, PaymentsCryptobot.currency).where(
+                    PaymentsCryptobot.user_id.in_(chunk),
+                    PaymentsCryptobot.status == 'paid',
+                )
+                for amt_cb, cur_cb in (await session.execute(stmt_cb)).all():
+                    total_payments += _cryptobot_payment_rub_equiv(cur_cb, str(amt_cb))
 
         return total, with_sub, with_tarif, with_tarif_not_block, total_payments, source
 
