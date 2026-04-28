@@ -3,7 +3,7 @@ from datetime import datetime
 from bot import x3, sql, bot
 
 from keyboard import create_kb, keyboard_sub_after_buy
-from lexicon import lexicon
+from lexicon import TRIAL_TARIFF_PAYMENT_RUB, lexicon
 from logging_config import logger
 
 async def process_confirmed_payment(payload):
@@ -157,7 +157,9 @@ async def process_confirmed_payment(payload):
                 await sql.update_in_panel(user_id)
             else:
                 await sql.add_user(user_id, True)
-            await sql.update_reserve_field(user_id)
+            is_paid_trial = duration == 3 and int(amount) == TRIAL_TARIFF_PAYMENT_RUB
+            if not is_paid_trial:
+                await sql.update_reserve_field(user_id)
 
             # Отправляем уведомление пользователю
             try:

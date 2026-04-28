@@ -1,4 +1,5 @@
 import uuid
+from collections import defaultdict
 
 from sqlalchemy import select, update, func, or_, and_
 from datetime import datetime, date, timezone, timedelta
@@ -19,6 +20,51 @@ def _cryptobot_payment_rub_equiv(currency: Optional[str], amount_str: str) -> in
     if not currency:
         return 0
     return _CRYPTO_TARIFF_RUB.get(currency, {}).get(amount_str, 0)
+
+
+def _parse_payload_key_values(payload: Optional[str]) -> Optional[Dict[str, str]]:
+    if not payload or not str(payload).strip():
+        return None
+    out: Dict[str, str] = {}
+    try:
+        for item in str(payload).split(','):
+            item = item.strip()
+            if ':' not in item:
+                continue
+            k, _, v = item.partition(':')
+            out[k.strip()] = v.strip()
+        return out or None
+    except Exception:
+        return None
+
+
+def _payment_row_is_trial_tariff(
+    payload: Optional[str],
+    status: Optional[str],
+    is_gift: bool,
+    cryptobot: bool,
+) -> bool:
+    """Один подтверждённый не-подарочный платёж считается только пробным, если в payload — 3 дня и сумма TRIAL."""
+    if is_gift:
+        return False
+    if cryptobot:
+        if status != 'paid':
+            return False
+    else:
+        if status != 'confirmed':
+            return False
+    pr = _parse_payload_key_values(payload)
+    if not pr:
+        return False
+    if pr.get('gift', 'False') == 'True':
+        return False
+    try:
+        duration = int(pr.get('duration', -1))
+        amt = int(float(pr.get('amount', -1)))
+    except (ValueError, TypeError):
+        return False
+    return duration == 3 and amt == TRIAL_TARIFF_PAYMENT_RUB
+
 
 # Пакетная обработка для /stat: меньше 999 — лимит переменных SQLite в одном запросе.
 _STAT_IN_CHUNK = 900
@@ -185,6 +231,73 @@ class AsyncSQL:
             stmt = update(Users).where(Users.user_id == user_id).values(reserve_field=True)
             await session.execute(stmt)
             await session.commit()
+
+    async def clear_reserve_for_users_with_only_trial_payments(self) -> Tuple[int, int, List[int]]:
+        """
+        Пользователи с reserve_field=True. Строки pending не учитываются.
+        Если есть хотя бы один подтверждённый подарочный платёж (is_gift, status confirmed / paid для cryptobot) —
+        reserve_field не меняется.
+        Иначе по подтверждённым не-подарочным строкам: если список не пуст и каждая — пробный тариф
+        (payload: 3 дня, TRIAL_TARIFF_PAYMENT_RUB), сбрасывает reserve_field.
+        Возвращает (число пользователей с reserve=True, сколько сброшено, список user_id сброшенных).
+        """
+        async with self.session_factory() as session:
+            r = await session.execute(select(Users.user_id).where(Users.reserve_field == True))
+            reserve_ids = [int(row[0]) for row in r.all()]
+        if not reserve_ids:
+            return 0, 0, []
+        scanned = len(reserve_ids)
+        cleared_ids: List[int] = []
+        scan_tables: Tuple[Tuple[Any, bool], ...] = (
+            (Payments, False),
+            (PaymentsCards, False),
+            (PaymentsPlategaCrypto, False),
+            (PaymentsWataSBP, False),
+            (PaymentsWataCard, False),
+            (PaymentsStars, False),
+            (PaymentsCryptobot, True),
+        )
+        for chunk in (reserve_ids[i : i + _STAT_IN_CHUNK] for i in range(0, len(reserve_ids), _STAT_IN_CHUNK)):
+            users_with_gift: Set[int] = set()
+            flags: Dict[int, List[bool]] = defaultdict(list)
+            async with self.session_factory() as session:
+                for model, is_cb in scan_tables:
+                    ok_status = model.status == 'paid' if is_cb else model.status == 'confirmed'
+                    stmt_gift = select(model.user_id).where(
+                        model.user_id.in_(chunk),
+                        model.is_gift == True,
+                        ok_status,
+                    )
+                    for (uid,) in (await session.execute(stmt_gift)).all():
+                        users_with_gift.add(int(uid))
+
+                    stmt_self = select(model.user_id, model.payload, model.status).where(
+                        model.user_id.in_(chunk),
+                        model.is_gift == False,
+                        ok_status,
+                    )
+                    for uid, payload, status in (await session.execute(stmt_self)).all():
+                        flags[int(uid)].append(
+                            _payment_row_is_trial_tariff(payload, status, False, is_cb)
+                        )
+            for uid in chunk:
+                if uid in users_with_gift:
+                    continue
+                lst = flags[uid]
+                if not lst:
+                    continue
+                if all(lst):
+                    cleared_ids.append(uid)
+        if cleared_ids:
+            async with self.session_factory() as session:
+                for upd_chunk in (
+                    cleared_ids[i : i + _STAT_IN_CHUNK] for i in range(0, len(cleared_ids), _STAT_IN_CHUNK)
+                ):
+                    await session.execute(
+                        update(Users).where(Users.user_id.in_(upd_chunk)).values(reserve_field=False)
+                    )
+                await session.commit()
+        return scanned, len(cleared_ids), cleared_ids
 
     async def update_delete(self, user_id: int, booly: bool):
         async with self.session_factory() as session:

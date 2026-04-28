@@ -3,6 +3,7 @@ from datetime import datetime, timezone
 
 from bot import sql, x3, bot
 from config import ADMIN_IDS, CHECKER_ID
+from lexicon import TRIAL_TARIFF_PAYMENT_RUB
 from keyboard import create_kb
 from logging_config import logger
 import asyncio
@@ -256,6 +257,31 @@ async def check_online(message: Message):
         f"Юзеры с платной подпиской: {count_pay}\n"
         f"Юзеры на триале: {count_trial}"
     )
+
+
+@router.message(Command("check_trial"))
+async def cmd_check_trial(message: Message):
+    """Сброс reserve: только успешные не-подарочные строки; pending игнор; любой успешный подарок — не трогаем."""
+    if message.from_user.id not in ADMIN_IDS:
+        return
+    try:
+        scanned, n_cleared, cleared_ids = await sql.clear_reserve_for_users_with_only_trial_payments()
+    except Exception as e:
+        logger.error(f"Ошибка /check_trial: {e}")
+        await message.answer(f"❌ Ошибка при проверке: {e}")
+        return
+    lines = [
+        f"С <code>reserve_field=True</code> в базе: <b>{scanned}</b>",
+        f"Сброшено в <code>False</code> (только подтверждённые самоплатежи — пробный 3д/{TRIAL_TARIFF_PAYMENT_RUB} ₽; "
+        f"есть подарочный оплаченный — не трогаем; pending не смотрим): <b>{n_cleared}</b>",
+    ]
+    if cleared_ids:
+        preview = cleared_ids[:35]
+        tail = ", ".join(str(x) for x in preview)
+        lines.append(f"\nID: <code>{tail}</code>")
+        if len(cleared_ids) > 35:
+            lines.append(f"\n… и ещё {len(cleared_ids) - 35}")
+    await message.answer("\n".join(lines), parse_mode="HTML")
 
 
 @router.message(Command("balance_panel"))
