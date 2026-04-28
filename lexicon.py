@@ -1,4 +1,4 @@
-from config import SUPPORT_URL, DOCUMENT_URL_1, DOCUMENT_URL_2, BOT_URL
+from config import SUPPORT_URL, DOCUMENT_URL_1, DOCUMENT_URL_2, BOT_URL, DOCUMENT_URL_3
 
 lexicon = {
     'to_chanel': 'Друзья, чтобы гарантированно оставаться на связи и всегда иметь рабочий инструмент под рукой, мы создали отдельный канал.\n\n'
