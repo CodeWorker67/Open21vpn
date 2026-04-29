@@ -134,8 +134,8 @@ class X3:
                 squad = random.choice([squad_1, squad_2])
                 trafficLimitStrategy = "NO_RESET"
                 trafficLimitBytes = 0
-                hwidDeviceLimit = 3
-            desc = 'SpeedGamer'
+                hwidDeviceLimit = 5
+            desc = 'Open21VPN'
             data = {
                 "username": user_id_str,
                 "status": "ACTIVE",
