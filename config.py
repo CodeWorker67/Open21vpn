@@ -30,6 +30,12 @@ WATA_API_BASE: str = os.environ.get("WATA_API_BASE", "https://api.wata.pro/api/h
 WATA_API_CARD_KEY: Optional[str] = os.environ.get("WATA_API_CARD_KEY")
 WATA_API_SBP_KEY: Optional[str] = os.environ.get("WATA_API_SBP_KEY")
 
+API_FREEKASSA: Optional[str] = (os.environ.get("API_FREEKASSA") or "").strip() or None
+SHOP_ID_FREEKASSA: Optional[int] = (
+    int(os.environ["SHOP_ID_FREEKASSA"]) if os.environ.get("SHOP_ID_FREEKASSA") else None
+)
+FREEKASSA_SERVER_IP: str = os.environ.get("FREEKASSA_SERVER_IP", "127.0.0.1")
+
 # Lead Tracker (POST /users/, /users/trial, /users/connected, /payments/)
 LEAD_TRACKER_BASE: Optional[str] = (os.environ.get("LEAD_TRACKER_BASE") or "").strip() or None
 LEAD_TRACKER_API_KEY: Optional[str] = (os.environ.get("LEAD_TRACKER_API_KEY") or "").strip() or None
