@@ -3,6 +3,7 @@ from datetime import datetime
 from bot import x3, sql, bot
 
 from keyboard import create_kb, keyboard_sub_after_buy
+from lead_tracker import post_payment_success, post_user_trial
 from lexicon import TRIAL_TARIFF_PAYMENT_RUB, lexicon
 from logging_config import logger
 
@@ -41,6 +42,7 @@ async def process_confirmed_payment(payload):
         if is_gift:
             # Обработка подарка
             gift_id = await sql.create_gift(user_id, duration, white_flag)
+            await post_payment_success(user_id, method, amount)
 
             # Отправляем сообщение с ссылкой на подарок
             marker = ' (мобильный тариф)' if white_flag else ''
@@ -160,6 +162,11 @@ async def process_confirmed_payment(payload):
             is_paid_trial = duration == 3 and int(amount) == TRIAL_TARIFF_PAYMENT_RUB
             if not is_paid_trial:
                 await sql.update_reserve_field(user_id)
+
+            if is_paid_trial:
+                await post_user_trial(user_id)
+            else:
+                await post_payment_success(user_id, method, amount)
 
             # Отправляем уведомление пользователю
             try:

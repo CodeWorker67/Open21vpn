@@ -3,6 +3,7 @@ import requests
 
 from bot import sql, x3, bot
 from config import CHANEL_ID, BOT_URL
+from lead_tracker import post_user_registered, tracker_source_from_ref_and_stamp
 from keyboard import (create_kb, keyboard_start, keyboard_start_bonus, keyboard_tariff_bonus, keyboard_tariff,
                       keyboard_subscription, keyboard_sub_after_free, ref_keyboard, keyboard_gift_tariff,
                       keyboard_payment_method, chanel_keyboard, keyboard_inline_ref)
@@ -104,6 +105,13 @@ async def process_start_command(message: Message, command: Command):
     if not existing:
         await sql.add_user(message.from_user.id, False, False, ref=ref_login, stamp=stamp)
         logger.info(f'Юзер {message.from_user.id} - {message.from_user.username} добавлен в БД')
+        src = tracker_source_from_ref_and_stamp(ref_login, stamp)
+        await post_user_registered(
+            message.from_user.id,
+            message.from_user.username,
+            message.from_user.full_name,
+            src,
+        )
         if ttclid:
             await sql.update_ttclid(message.from_user.id, ttclid)
             logger.info(f'Юзеру {message.from_user.id} - {message.from_user.username} присвоен ttclid')
@@ -302,6 +310,12 @@ async def activate_gift(message: Message, gift_id: str):
         else:
             logger.success(
                 f'Юзер {message.from_user.id} - {message.from_user.username} зашел в бота в первый раз и получил подарочную подписку')
+            await post_user_registered(
+                message.from_user.id,
+                message.from_user.username,
+                message.from_user.full_name,
+                None,
+            )
 
         # Отправляем сообщение получателю
         await message.answer(lexicon['gift_yes'].format(duration, subscription_time))

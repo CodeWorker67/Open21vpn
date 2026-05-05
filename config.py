@@ -29,3 +29,8 @@ SHORT_UUID_SECRET: Optional[str] = os.environ.get("SHORT_UUID_SECRET")
 WATA_API_BASE: str = os.environ.get("WATA_API_BASE", "https://api.wata.pro/api/h2h").rstrip("/")
 WATA_API_CARD_KEY: Optional[str] = os.environ.get("WATA_API_CARD_KEY")
 WATA_API_SBP_KEY: Optional[str] = os.environ.get("WATA_API_SBP_KEY")
+
+# Lead Tracker (POST /users/, /users/trial, /users/connected, /payments/)
+LEAD_TRACKER_BASE: Optional[str] = (os.environ.get("LEAD_TRACKER_BASE") or "").strip() or None
+LEAD_TRACKER_API_KEY: Optional[str] = (os.environ.get("LEAD_TRACKER_API_KEY") or "").strip() or None
+LEAD_TRACKER_STAR_RUB_PER_STAR: str = os.environ.get("LEAD_TRACKER_STAR_RUB_PER_STAR", "1.0")
