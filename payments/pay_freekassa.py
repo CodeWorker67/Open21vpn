@@ -264,6 +264,12 @@ async def _handle_wata_style_callback(callback: CallbackQuery, ui_kind: UiKind) 
     prefix = "wata_sbp_r_" if ui_kind == "sbp" else "wata_card_r_"
     gift_prefix = "wata_sbp_gift_r_" if ui_kind == "sbp" else "wata_card_gift_r_"
     duration, gift_flag = _duration_from_callback(data, prefix, gift_prefix)
+    if ui_kind == "card" and not gift_flag and duration == "3":
+        await callback.message.answer(
+            lexicon["trial_no_card_payment"],
+            reply_markup=create_kb(1, back_to_main=BTN_BACK),
+        )
+        return
     desc_key = duration
     rub_amount = dct_price[duration]
     if callback.from_user.id in ADMIN_IDS:

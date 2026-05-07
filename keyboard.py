@@ -331,22 +331,28 @@ def keyboard_payment_cancel():
 
 
 def keyboard_payment_method(tarif):
-    keyboard = InlineKeyboardMarkup(
-        inline_keyboard=[
-            [
-                InlineKeyboardButton(
-                    text="⚡ СБП",
-                    callback_data=f"wata_sbp_{tarif}",
-                    style=STYLE_SUCCESS,
-                )
-            ],
+    rows = [
+        [
+            InlineKeyboardButton(
+                text="⚡ СБП",
+                callback_data=f"wata_sbp_{tarif}",
+                style=STYLE_SUCCESS,
+            )
+        ],
+    ]
+    # Пробный тариф (r_3): без оплаты картой — только СБП / Stars / Crypto.
+    if tarif != "r_3":
+        rows.append(
             [
                 InlineKeyboardButton(
                     text="💳 Карта РФ",
                     callback_data=f"wata_card_{tarif}",
                     style=STYLE_PRIMARY,
                 )
-            ],
+            ]
+        )
+    rows.extend(
+        [
             [
                 InlineKeyboardButton(
                     text="⭐️ Telegram Stars",
@@ -364,7 +370,7 @@ def keyboard_payment_method(tarif):
             [InlineKeyboardButton(text="🔙 Назад", callback_data="back_to_main")],
         ]
     )
-    return keyboard
+    return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
 def keyboard_payment_method_stock(tarif):
