@@ -9,7 +9,7 @@ from aiogram import Bot
 
 from bot import sql, x3
 from config import CHECKER_ID
-from keyboard import create_kb, keyboard_tariff, STYLE_PRIMARY
+from keyboard import create_kb, keyboard_tariff, keyboard_tariff_trial, STYLE_PRIMARY
 from lexicon import lexicon
 from logging_config import logger
 
@@ -120,7 +120,7 @@ async def send_message_cron(bot: Bot):
     ids_week: List[int] = []
     ids_second_chance: List[int] = []
 
-    for user_id, end_raw, _is_pay_flag, ttclid, field_str_1_raw in candidate_rows:
+    for user_id, end_raw, is_pay_flag, ttclid, field_str_1_raw in candidate_rows:
         try:
             end = _normalize_end_utc(end_raw)
             if end is None:
@@ -129,7 +129,10 @@ async def send_message_cron(bot: Bot):
             end_key = _end_key(end)
             sent = _load_state(field_str_1_raw, end_key)
 
-            keyboard = keyboard_tariff()
+            if is_pay_flag:
+                keyboard = keyboard_tariff()
+            else:
+                keyboard = keyboard_tariff_trial()
 
             if now < end:
                 t7 = end - timedelta(days=7)

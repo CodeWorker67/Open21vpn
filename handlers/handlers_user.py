@@ -3,7 +3,7 @@ import requests
 
 from bot import sql, x3, bot
 from config import CHANEL_ID, BOT_URL
-from lead_tracker import post_user_registered, tracker_source_from_ref_and_stamp
+from lead_tracker import post_user_registered, post_user_trial, tracker_source_from_ref_and_stamp
 from keyboard import (create_kb, keyboard_start, keyboard_start_bonus, keyboard_tariff_bonus, keyboard_tariff,
                       keyboard_subscription, keyboard_sub_after_free, ref_keyboard, keyboard_gift_tariff,
                       keyboard_payment_method, chanel_keyboard, keyboard_inline_ref)
@@ -170,7 +170,7 @@ async def direct_connect_vpn_cb(callback: CallbackQuery):
     await callback.answer()
 
 
-@router.callback_query(F.data.in_({'r_3', 'r_30', 'r_90', 'r_240', 'r_white_30'}))
+@router.callback_query(F.data.in_({'r_30', 'r_90', 'r_240', 'r_white_30'}))
 async def process_payment_method(callback: CallbackQuery):
     await callback.answer()
     text = lexicon['payment_link']
@@ -183,29 +183,37 @@ async def process_payment_method(callback: CallbackQuery):
 
 
 @router.callback_query(F.data == 'free_vpn')
-async def free_vpn_legacy_cb(callback: CallbackQuery):
-    """Старые кнопки «бесплатно» в рассылках: триал теперь платный."""
-    await callback.answer()
+async def free_vpn_cb(callback: CallbackQuery):
+    day = 3
     user_data = await sql.get_user(callback.from_user.id)
     in_panel = False
     if user_data is not None and len(user_data) > 4:
         in_panel = user_data[4]
     if in_panel:
+        await callback.answer()
         await callback.message.answer(
             text=lexicon['free_vpn_no'],
             reply_markup=keyboard_start(),
         )
         return
+    await callback.answer()
+    logger.info(await x3.addClient(day, str(callback.from_user.id), int(callback.from_user.id)))
     result_active = await x3.activ(str(callback.from_user.id))
-    if result_active['activ'] == '🔎 - Не подключён' and not in_panel:
-        kb = keyboard_tariff_bonus()
+    time = result_active['time']
+
+    if await sql.get_user(callback.from_user.id) is not None:
+        await sql.update_in_panel(callback.from_user.id)
     else:
-        kb = keyboard_tariff()
+        await sql.add_user(callback.from_user.id, True)
+    user_id = str(callback.from_user.id)
+    sub_url = await x3.sublink(user_id)
+
     await callback.message.answer(
-        text=lexicon['buy'],
-        reply_markup=kb,
+        text=lexicon['buy_success'].format(time, sub_url),
+        reply_markup=keyboard_sub_after_free(sub_url),
         disable_web_page_preview=True,
     )
+    await post_user_trial(callback.from_user.id)
 
 
 @router.callback_query(F.data == 'info')

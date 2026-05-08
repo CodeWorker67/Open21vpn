@@ -241,13 +241,12 @@ async def check_online(message: Message):
         except (ValueError, TypeError):
             continue
 
-    full_tariff_ids = await sql.user_ids_with_full_tariff_payment(active_telegram_ids)
     count_pay = 0
     count_trial = 0
     for tg_id in active_telegram_ids:
         user_data = await sql.get_user(tg_id)
         if user_data:
-            if tg_id in full_tariff_ids:
+            if user_data[8]:
                 count_pay += 1
             else:
                 count_trial += 1
@@ -272,7 +271,7 @@ async def cmd_check_trial(message: Message):
         return
     lines = [
         f"С <code>reserve_field=True</code> в базе: <b>{scanned}</b>",
-        f"Сброшено в <code>False</code> (только подтверждённые самоплатежи — пробный 3д/{TRIAL_TARIFF_PAYMENT_RUB} ₽; "
+        f"Сброшено в <code>False</code> (только подтверждённые самоплатежи — <b>устаревший</b> платный пробный 3д/{TRIAL_TARIFF_PAYMENT_RUB} ₽; "
         f"есть подарочный оплаченный — не трогаем; pending не смотрим): <b>{n_cleared}</b>",
     ]
     if cleared_ids:

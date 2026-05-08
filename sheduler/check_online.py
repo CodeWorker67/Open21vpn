@@ -32,14 +32,13 @@ async def check_online_daily():
                 continue
         users_active = len(active_telegram_ids)
 
-        # 3. Классифицируем на платных (полный тариф) и триальных (в т.ч. оплативших только пробный 10 ₽)
-        full_tariff_ids = await sql.user_ids_with_full_tariff_payment(active_telegram_ids)
+        # 3. Классифицируем на платных (reserve_field) и триальных — как в SocialmediaVPN
         users_pay = 0
         users_trial = 0
         for tg_id in active_telegram_ids:
             user_data = await sql.get_user(tg_id)
             if user_data:
-                if tg_id in full_tariff_ids:
+                if user_data[8]:
                     users_pay += 1
                 else:
                     users_trial += 1

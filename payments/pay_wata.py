@@ -355,12 +355,6 @@ async def process_payment_wata_card(callback: CallbackQuery):
     await callback.answer()
     data = callback.data
     duration, gift_flag = _duration_from_wata_callback(data, "wata_card_r_", "wata_card_gift_r_")
-    if not gift_flag and duration == "3":
-        await callback.message.answer(
-            lexicon["trial_no_card_payment"],
-            reply_markup=create_kb(1, back_to_main="🔙 Назад"),
-        )
-        return
     desc_key = duration
     rub_amount = dct_price[duration]
     if callback.from_user.id in ADMIN_IDS:

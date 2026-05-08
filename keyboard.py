@@ -14,7 +14,7 @@ BTN_BACK = "🔙 Назад"
 
 _DEFAULT_CALLBACK_STYLES: dict[str, str] = {
     "buy_vpn": STYLE_SUCCESS,
-    "r_3": STYLE_SUCCESS,
+    "free_vpn": STYLE_SUCCESS,
     "connect_vpn": STYLE_PRIMARY,
     "ref": STYLE_PRIMARY,
     "buy_gift": STYLE_SUCCESS,
@@ -60,10 +60,11 @@ def create_kb(
 
 
 _STYLES_TARIFF = {
-    "r_3": STYLE_SUCCESS,
     "r_30": STYLE_PRIMARY,
     "r_90": STYLE_PRIMARY,
     "r_240": STYLE_SUCCESS,
+    "r_white_30": STYLE_PRIMARY,
+    "free_vpn": STYLE_SUCCESS,
 }
 
 _STYLES_GIFT = {
@@ -89,8 +90,8 @@ def chanel_keyboard():
 def keyboard_start_bonus():
     return create_kb(
         1,
-        styles={"r_3": STYLE_SUCCESS, "buy_vpn": STYLE_PRIMARY},
-        r_3="🔥 10 ₽ на 3 дня",
+        styles={"free_vpn": STYLE_SUCCESS, "buy_vpn": STYLE_PRIMARY},
+        free_vpn="✨ Попробовать 3 дня бесплатно",
         buy_vpn="🛒 Купить от 120₽ в месяц",
     )
 
@@ -112,7 +113,7 @@ def keyboard_tariff_bonus():
         r_30="🤝 30 дней - 199 руб",
         r_90="👌 90 дней - 539 руб (выгода -10%)",
         r_240="💪 240 дней - 999 руб (выгода -40%)",
-        r_3="🔥 10 ₽ на 3 дня",
+        free_vpn="✨ ПОПРОБОВАТЬ 3 дня БЕСПЛАТНО ✨",
         back_to_main="🔙 Назад",
     )
 
@@ -120,10 +121,24 @@ def keyboard_tariff_bonus():
 def keyboard_tariff():
     return create_kb(
         1,
-        styles={k: v for k, v in _STYLES_TARIFF.items() if k != "r_3"},
+        styles={k: v for k, v in _STYLES_TARIFF.items() if k != "free_vpn"},
         r_30="🤝 30 дней - 199 руб",
         r_90="👌 90 дней - 539 руб (выгода -10%)",
         r_240="💪 240 дней - 999 руб (выгода -40%)",
+        # r_white_30="🦾 Ускоритель игр Mobile - 299 руб",
+        back_to_main="🔙 Назад",
+    )
+
+
+def keyboard_tariff_trial():
+    """Тарифы для пушей до конца подписки у пользователей без полной оплаты (reserve_field=False)."""
+    return create_kb(
+        1,
+        styles={k: v for k, v in _STYLES_TARIFF.items() if k != "free_vpn"},
+        r_30="🤝 30 дней - 199 руб",
+        r_90="👌 90 дней - 539 руб (выгода -10%)",
+        r_240="💪 240 дней - 999 руб (выгода -40%)",
+        # r_white_30="🦾 Ускоритель игр Mobile - 299 руб",
         back_to_main="🔙 Назад",
     )
 
@@ -340,17 +355,15 @@ def keyboard_payment_method(tarif):
             )
         ],
     ]
-    # Пробный тариф (r_3): без оплаты картой — только СБП / Stars / Crypto.
-    if tarif != "r_3":
-        rows.append(
-            [
-                InlineKeyboardButton(
-                    text="💳 Карта РФ",
-                    callback_data=f"wata_card_{tarif}",
-                    style=STYLE_PRIMARY,
-                )
-            ]
-        )
+    rows.append(
+        [
+            InlineKeyboardButton(
+                text="💳 Карта РФ",
+                callback_data=f"wata_card_{tarif}",
+                style=STYLE_PRIMARY,
+            )
+        ]
+    )
     rows.extend(
         [
             [
