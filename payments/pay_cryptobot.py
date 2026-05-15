@@ -85,17 +85,27 @@ class CryptoBotPayment:
             return None
 
 
-async def create_cryptobot_payment(rub_amount: int, description: str,
-                                   user_id: int, duration: str, white: bool,
-                                   is_gift: bool) -> Dict:
+async def create_cryptobot_payment(
+    rub_amount: int,
+    description: str,
+    user_id: int,
+    duration: str,
+    white: bool,
+    is_gift: bool,
+    source: Optional[str] = None,
+) -> Dict:
     """
     Создание платежа через Cryptobot с суммой в рублях.
     Пользователь сам выбирает криптовалюту внутри Cryptobot.
     """
     cryptobot = CryptoBotPayment(CRYPTOBOT_API_TOKEN)
 
-    payload = (f"user_id:{user_id},duration:{duration},white:{white},"
-               f"gift:{is_gift},method:cryptobot,amount:{rub_amount}")
+    payload = (
+        f"user_id:{user_id},duration:{duration},white:{white},"
+        f"gift:{is_gift},method:cryptobot,amount:{rub_amount}"
+    )
+    if source:
+        payload += f",source:{source}"
 
     result = await cryptobot.create_invoice(
         fiat_amount=float(rub_amount),

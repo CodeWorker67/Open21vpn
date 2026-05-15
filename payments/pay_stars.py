@@ -1,3 +1,5 @@
+from typing import Optional
+
 from bot import bot
 from config import ADMIN_IDS
 from keyboard import keyboard_payment_stars
@@ -20,32 +22,28 @@ def get_stars_amount(currency: str, duration: str) -> float:
     return prices.get(currency, {}).get(duration, 0)
 
 
-@router.callback_query(F.data.startswith('stars_'))
-async def process_payment_stars(callback: CallbackQuery):
-    gift_flag = False
-    white_flag = False
-    if 'gift_' in callback.data:
-        gift_flag = True
-    duration = callback.data.replace('stars_r_', '').replace('stars_gift_r_', '')
-
-    stars_amount = get_stars_amount('Stars', duration)
-    if callback.from_user.id in ADMIN_IDS:
-        stars_amount = 1
-    user_id = str(callback.from_user.id)
-
-    if 'white' in duration:
-        duration = duration.replace('white_', '')
-        white_flag = True
-    if 'old' in duration:
-        duration = duration.replace('old', '')
-
-    payload = f"user_id:{user_id},duration:{duration},white:{white_flag},gift:{gift_flag},method:stars,amount:{stars_amount}"
-
+async def send_stars_subscription_invoice(
+    chat_id: int,
+    *,
+    duration_days_str: str,
+    stars_amount: int,
+    white_flag: bool,
+    gift_flag: bool,
+    source: Optional[str] = None,
+) -> None:
+    """Счёт Stars в Telegram (бот должен быть запущен с polling / webhook)."""
+    user_id = str(chat_id)
+    payload = (
+        f"user_id:{user_id},duration:{duration_days_str},white:{white_flag},"
+        f"gift:{gift_flag},method:stars,amount:{stars_amount}"
+    )
+    if source:
+        payload += f",source:{source}"
     prices = [LabeledPrice(label="XTR", amount=stars_amount)]
-    title = f"Оплата подписки {'в подарок другу ' if gift_flag else ''}на {duration} дней."
+    title = f"Оплата подписки {'в подарок другу ' if gift_flag else ''}на {duration_days_str} дней."
     description = lexicon['payment_link_white'] if white_flag else lexicon['payment_link']
     await bot.send_invoice(
-        callback.from_user.id,
+        chat_id,
         title=title,
         description=description,
         prices=prices,
@@ -53,6 +51,34 @@ async def process_payment_stars(callback: CallbackQuery):
         payload=payload,
         currency="XTR",
         reply_markup=keyboard_payment_stars(stars_amount),
+    )
+
+
+@router.callback_query(F.data.startswith('stars_'))
+async def process_payment_stars(callback: CallbackQuery):
+    gift_flag = False
+    white_flag = False
+    if 'gift_' in callback.data:
+        gift_flag = True
+    duration_key = callback.data.replace('stars_r_', '').replace('stars_gift_r_', '')
+
+    stars_amount = int(get_stars_amount('Stars', duration_key))
+    if callback.from_user.id in ADMIN_IDS:
+        stars_amount = 1
+
+    duration_days = duration_key
+    if 'white' in duration_days:
+        duration_days = duration_days.replace('white_', '')
+        white_flag = True
+    if 'old' in duration_days:
+        duration_days = duration_days.replace('old', '')
+
+    await send_stars_subscription_invoice(
+        callback.from_user.id,
+        duration_days_str=duration_days,
+        stars_amount=stars_amount,
+        white_flag=white_flag,
+        gift_flag=gift_flag,
     )
 
 

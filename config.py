@@ -40,3 +40,10 @@ FREEKASSA_SERVER_IP: str = os.environ.get("FREEKASSA_SERVER_IP", "127.0.0.1")
 LEAD_TRACKER_BASE: Optional[str] = (os.environ.get("LEAD_TRACKER_BASE") or "").strip() or None
 LEAD_TRACKER_API_KEY: Optional[str] = (os.environ.get("LEAD_TRACKER_API_KEY") or "").strip() or None
 LEAD_TRACKER_STAR_RUB_PER_STAR: str = os.environ.get("LEAD_TRACKER_STAR_RUB_PER_STAR", "1.0")
+
+# HTTP API подписной страницы (web_api.py, старт из main). Заголовок: X-API-Key
+SUB_PAGE_API_KEY: Optional[str] = (os.environ.get("SUB_PAGE_API_KEY") or "").strip() or None
+try:
+    WEB_API_PORT: int = int((os.environ.get("WEB_API_PORT") or "8080").strip())
+except ValueError:
+    WEB_API_PORT = 8080

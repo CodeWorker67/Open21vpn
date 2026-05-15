@@ -142,6 +142,12 @@ def _db_method(ui_kind: UiKind) -> str:
     return "fk_qr_sbp" if ui_kind == "sbp" else "fk_qr_card"
 
 
+def _append_source(payload: str, source: Optional[str]) -> str:
+    if not source:
+        return payload
+    return f"{payload},source:{source}"
+
+
 async def pay(
     val: str,
     des: str,
@@ -149,6 +155,8 @@ async def pay(
     duration: str,
     white: bool,
     ui_kind: UiKind,
+    *,
+    source: Optional[str] = None,
 ) -> Dict[str, Any]:
     if not API_FREEKASSA or SHOP_ID_FREEKASSA is None:
         logger.error("FreeKassa: не заданы API_FREEKASSA или SHOP_ID_FREEKASSA")
@@ -156,8 +164,9 @@ async def pay(
 
     pm = _payload_method(ui_kind)
     amount_rub = _fk_amount_rub(val, ui_kind)
-    payload = (
-        f"user_id:{user_id},duration:{duration},white:{white},gift:False,method:{pm},amount:{amount_rub}"
+    payload = _append_source(
+        f"user_id:{user_id},duration:{duration},white:{white},gift:False,method:{pm},amount:{amount_rub}",
+        source,
     )
     fk = FreekassaPayment(API_FREEKASSA, SHOP_ID_FREEKASSA)
     nonce = await sql.alloc_fk_api_nonce()
@@ -202,6 +211,8 @@ async def pay_for_gift(
     duration: str,
     white: bool,
     ui_kind: UiKind,
+    *,
+    source: Optional[str] = None,
 ) -> Dict[str, Any]:
     if not API_FREEKASSA or SHOP_ID_FREEKASSA is None:
         logger.error("FreeKassa: не заданы API_FREEKASSA или SHOP_ID_FREEKASSA")
@@ -209,8 +220,9 @@ async def pay_for_gift(
 
     pm = _payload_method(ui_kind)
     amount_rub = _fk_amount_rub(val, ui_kind)
-    payload = (
-        f"user_id:{user_id},duration:{duration},white:{white},gift:True,method:{pm},amount:{amount_rub}"
+    payload = _append_source(
+        f"user_id:{user_id},duration:{duration},white:{white},gift:True,method:{pm},amount:{amount_rub}",
+        source,
     )
     fk = FreekassaPayment(API_FREEKASSA, SHOP_ID_FREEKASSA)
     nonce = await sql.alloc_fk_api_nonce()

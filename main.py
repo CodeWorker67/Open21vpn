@@ -2,9 +2,12 @@ import asyncio
 from aiogram import Bot, Dispatcher
 from aiogram.types import BotCommand
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
+import uvicorn
 
 from bot import bot
+from config import SUB_PAGE_API_KEY, WEB_API_PORT
 from config_bd.models import create_tables
+from web_api import app as subpage_app
 from payments import pay_stars, pay_cryptobot, pay_platega, pay_freekassa
 # from payments import pay_wata
 from sheduler.check_connect import check_connect
@@ -61,6 +64,21 @@ async def main() -> None:
 
     await set_commands(bot)
 
+    api_task: asyncio.Task | None = None
+    api_server: uvicorn.Server | None = None
+    if SUB_PAGE_API_KEY:
+        uvicorn_config = uvicorn.Config(
+            subpage_app,
+            host="0.0.0.0",
+            port=WEB_API_PORT,
+            log_level="info",
+        )
+        api_server = uvicorn.Server(uvicorn_config)
+        api_task = asyncio.create_task(api_server.serve())
+        logger.info(f"Subpage API: http://0.0.0.0:{WEB_API_PORT}/api/v1/sub_page/pay/...")
+    else:
+        logger.info("SUB_PAGE_API_KEY не задан — HTTP API подписной страницы не запускается.")
+
     try:
         # Пропуск накопившихся апдейтов и запуск polling
         await bot.delete_webhook(drop_pending_updates=True)
@@ -69,6 +87,14 @@ async def main() -> None:
     except asyncio.CancelledError:
         logger.error("Polling was cancelled. Cleaning up...")
     finally:
+        if api_server is not None:
+            api_server.should_exit = True
+        if api_task is not None:
+            api_task.cancel()
+            try:
+                await api_task
+            except asyncio.CancelledError:
+                pass
         await bot.session.close()
         logger.info("Bot session closed.")
 
