@@ -1,6 +1,6 @@
 from dotenv import load_dotenv
 import os
-from typing import Set, Optional
+from typing import List, Set, Optional
 
 # Загрузка переменных окружения из .env файла
 load_dotenv()
@@ -43,6 +43,11 @@ LEAD_TRACKER_STAR_RUB_PER_STAR: str = os.environ.get("LEAD_TRACKER_STAR_RUB_PER_
 
 # HTTP API подписной страницы (web_api.py, старт из main). Заголовок: X-API-Key
 SUB_PAGE_API_KEY: Optional[str] = (os.environ.get("SUB_PAGE_API_KEY") or "").strip() or None
+# CORS для fetch со страницы подписки (через запятую). Пусто — разрешить любой origin (*).
+_raw_cors = (os.environ.get("SUB_PAGE_CORS_ORIGINS") or "").strip()
+SUB_PAGE_CORS_ORIGINS: List[str] = (
+    [o.strip() for o in _raw_cors.split(",") if o.strip()] if _raw_cors else ["*"]
+)
 try:
     WEB_API_PORT: int = int((os.environ.get("WEB_API_PORT") or "8080").strip())
 except ValueError:

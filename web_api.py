@@ -5,6 +5,9 @@ HTTP API для кастомной страницы подписки: созда
 Отдельно: python web_api.py (тот же .env).
 
 Заголовок: X-API-Key: значение SUB_PAGE_API_KEY из .env
+
+CORS: со страницы подписки (другой origin) браузер шлёт OPTIONS (preflight).
+Задайте SUB_PAGE_CORS_ORIGINS списком URL страницы подписки через запятую, либо оставьте пустым для *.
 """
 from __future__ import annotations
 
@@ -12,10 +15,11 @@ from contextlib import asynccontextmanager
 from typing import Literal, Optional
 
 from fastapi import APIRouter, Depends, FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import APIKeyHeader
 from pydantic import BaseModel, Field
 
-from config import ADMIN_IDS, BOT_URL, SUB_PAGE_API_KEY, WEB_API_PORT
+from config import ADMIN_IDS, BOT_URL, SUB_PAGE_API_KEY, SUB_PAGE_CORS_ORIGINS, WEB_API_PORT
 from config_bd.models import create_tables
 from lexicon import dct_desc, dct_price
 from logging_config import logger
@@ -31,6 +35,7 @@ FK_SBP_SUBPAGE_PRICE_RUB: dict[str, int] = {
     "30": dct_price["30"],
     "90": dct_price["90"],
     "180": 849,
+    "240": dct_price["240"],
     "3000": 12999,
 }
 
@@ -46,7 +51,7 @@ async def require_subpage_api_key(x_api_key: Optional[str] = Depends(api_key_hea
 
 class FkSbpPayBody(BaseModel):
     user_id: int = Field(..., description="Telegram user id")
-    duration: Literal["7", "30", "90", "180", "3000"]
+    duration: Literal["7", "30", "90", "180", "240", "3000"]
 
 
 class FkCardPayBody(BaseModel):
@@ -176,6 +181,13 @@ async def sub_page_pay_cryptobot(body: CryptobotPayBody) -> PayUrlResponse:
 
 
 app = FastAPI(title="Open21 VPN — subpage payments", lifespan=_lifespan)
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=SUB_PAGE_CORS_ORIGINS,
+    allow_credentials=False,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 app.include_router(router)
 
 
