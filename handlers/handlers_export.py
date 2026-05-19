@@ -25,6 +25,7 @@ def _sync_build_export_from_snapshot(snapshot: Dict[str, List[Any]]) -> str:
     payments_wata_sbp_list = snapshot["payments_wata_sbp"]
     payments_wata_card_list = snapshot["payments_wata_card"]
     payments_fk_sbp_list = snapshot["payments_fk_sbp"]
+    payments_youkassa_list = snapshot["payments_youkassa"]
     payments_stars_list = snapshot["payments_stars"]
     payments_cryptobot_list = snapshot["payments_cryptobot"]
     gifts_list = snapshot["gifts"]
@@ -141,6 +142,31 @@ def _sync_build_export_from_snapshot(snapshot: Dict[str, List[Any]]) -> str:
                 max_len = max(max_len, len(str(cell.value)))
         ws_fk_sbp.column_dimensions[col_letter].width = min(max_len + 2, 50)
 
+    ws_youkassa = wb.create_sheet(title="payments_youkassa")
+    yk_columns = ['ID', 'User ID', 'Amount', 'Time Created', 'Is Gift', 'Status', 'Transaction_Id', 'Payload']
+    for col_num, title in enumerate(yk_columns, 1):
+        cell = ws_youkassa.cell(row=1, column=col_num, value=title)
+        cell.alignment = header_alignment
+        cell.border = thin_border
+
+    for row_num, pay in enumerate(payments_youkassa_list, 2):
+        row_data = [
+            pay.id, pay.user_id, pay.amount, pay.time_created,
+            pay.is_gift, pay.status, pay.transaction_id, pay.payload,
+        ]
+        for col_num, value in enumerate(row_data, 1):
+            if col_num == 4 and value and isinstance(value, datetime):
+                value = value.strftime('%Y-%m-%d %H:%M:%S')
+            cell = ws_youkassa.cell(row=row_num, column=col_num, value=value)
+            cell.border = thin_border
+
+    for col in ws_youkassa.columns:
+        max_len = 0
+        col_letter = col[0].column_letter
+        for cell in col:
+            if cell.value:
+                max_len = max(max_len, len(str(cell.value)))
+        ws_youkassa.column_dimensions[col_letter].width = min(max_len + 2, 50)
 
     # --- Лист PAYMENTS_CARDS (платежи по картам) ---
     ws_payments_cards = wb.create_sheet(title="payments_cards")
@@ -422,6 +448,7 @@ async def export_database_to_excel(message: Message):
         payments_wata_sbp_list = snapshot["payments_wata_sbp"]
         payments_wata_card_list = snapshot["payments_wata_card"]
         payments_fk_sbp_list = snapshot["payments_fk_sbp"]
+        payments_youkassa_list = snapshot["payments_youkassa"]
 
         users_count = len(users_list)
         gifts_count = len(gifts_list)
@@ -432,6 +459,7 @@ async def export_database_to_excel(message: Message):
         payments_wata_sbp_count = len(payments_wata_sbp_list)
         payments_wata_card_count = len(payments_wata_card_list)
         payments_fk_sbp_count = len(payments_fk_sbp_list)
+        payments_youkassa_count = len(payments_youkassa_list)
 
         successful_payments_count = sum(1 for p in payments_list if p.status == 'confirmed')
         successful_cards_count = sum(1 for p in payments_cards_list if p.status == 'confirmed')
@@ -439,6 +467,7 @@ async def export_database_to_excel(message: Message):
         successful_wata_sbp_count = sum(1 for p in payments_wata_sbp_list if p.status == 'confirmed')
         successful_wata_card_count = sum(1 for p in payments_wata_card_list if p.status == 'confirmed')
         successful_fk_sbp_count = sum(1 for p in payments_fk_sbp_list if p.status == 'confirmed')
+        successful_youkassa_count = sum(1 for p in payments_youkassa_list if p.status == 'confirmed')
 
         now_s = datetime.now().strftime('%d.%m.%Y %H:%M')
         caption = (
@@ -452,6 +481,7 @@ async def export_database_to_excel(message: Message):
             f"├ ⭐ Платежей Stars: {payments_stars_count}\n"
             f"├ 💎 Платежей Platega Crypto: {successful_platega_crypto_count}/{payments_platega_crypto_count}\n"
             f"├ 💳 Платежей FreeKassa: {successful_fk_sbp_count}/{payments_fk_sbp_count}\n"
+            f"├ 💳 Платежей ЮKassa: {successful_youkassa_count}/{payments_youkassa_count}\n"
             f"├ ⚡ Платежей WATA СБП: {successful_wata_sbp_count}/{payments_wata_sbp_count}\n"
             f"└ 💳 Платежей WATA Карта: {successful_wata_card_count}/{payments_wata_card_count}\n"
         )

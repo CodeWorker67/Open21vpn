@@ -19,7 +19,7 @@ async def process_confirmed_payment(payload):
         method = payload_parts.get('method', '')
         if method in (
             'sbp', 'fksbp', 'fk_sbp', 'fk_card', 'stars', 'card', 'crypto', 'cryptobot',
-            'wata_sbp', 'wata_card',
+            'wata_sbp', 'wata_card', 'yookassa_sbp', 'yookassa_card', 'yookassa',
         ):
             amount = int(payload_parts.get('amount', 0))
         else:
@@ -32,6 +32,7 @@ async def process_confirmed_payment(payload):
         # Определяем валюту для сообщения
         if method in [
             'sbp', 'fksbp', 'fk_sbp', 'fk_card', 'card', 'crypto', 'cryptobot', 'wata_sbp', 'wata_card',
+            'yookassa_sbp', 'yookassa_card', 'yookassa',
         ]:
             currency = 'руб'
         elif method == 'stars':
@@ -164,7 +165,8 @@ async def process_confirmed_payment(payload):
                 await sql.update_in_panel(user_id)
             else:
                 await sql.add_user(user_id, True)
-            is_paid_trial = duration == 3 and int(amount) == TRIAL_TARIFF_PAYMENT_RUB
+            auto_renew = payload_parts.get('auto_renew', 'False') == 'True'
+            is_paid_trial = duration == 3 and int(amount) in (TRIAL_TARIFF_PAYMENT_RUB, 10)
             if not is_paid_trial:
                 await sql.update_reserve_field(user_id)
 
@@ -172,6 +174,8 @@ async def process_confirmed_payment(payload):
                 await post_user_trial(user_id)
             else:
                 await post_payment_success(user_id, method, amount)
+            if auto_renew:
+                await sql.update_reserve_field(user_id)
 
             # Отправляем уведомление пользователю
             try:

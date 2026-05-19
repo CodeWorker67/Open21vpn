@@ -17,7 +17,7 @@ router: Router = Router()
 def get_stars_amount(currency: str, duration: str) -> float:
     """Возвращает цену для тарифа в указанной криптовалюте"""
     prices = {
-        'Stars': {'30': 199, '90': 539, '240': 999, 'white_30': 299}
+        'Stars': {'30': 349, '90': 749, '365': 1799, '240': 1799, 'white_30': 299}
     }
     return prices.get(currency, {}).get(duration, 0)
 
@@ -61,6 +61,8 @@ async def process_payment_stars(callback: CallbackQuery):
     if 'gift_' in callback.data:
         gift_flag = True
     duration_key = callback.data.replace('stars_r_', '').replace('stars_gift_r_', '')
+    if duration_key == '240':
+        duration_key = '365'
 
     stars_amount = int(get_stars_amount('Stars', duration_key))
     if callback.from_user.id in ADMIN_IDS:

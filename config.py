@@ -52,3 +52,13 @@ try:
     WEB_API_PORT: int = int((os.environ.get("WEB_API_PORT") or "8080").strip())
 except ValueError:
     WEB_API_PORT = 8080
+# ЮKassa (рекуррент): shopId и секретный ключ из личного кабинета; return_url — HTTPS после оплаты (по умолчанию BOT_URL).
+YOUKASSA_SHOP_ID: Optional[str] = (os.environ.get("YOUKASSA_SHOP_ID") or "").strip() or None
+YOUKASSA_API_KEY: Optional[str] = (os.environ.get("YOUKASSA_API_KEY") or "").strip() or None
+YOUKASSA_RETURN_URL: Optional[str] = (os.environ.get("YOUKASSA_RETURN_URL") or "").strip() or None
+# Чек 54-ФЗ: запасной email, если telegram user_id неизвестен (обычно {id}@telegram.org).
+YOUKASSA_RECEIPT_EMAIL: str = (os.environ.get("YOUKASSA_RECEIPT_EMAIL") or "receipt@open21.top").strip()
+# vat_code: 1 — без НДС; см. https://yookassa.ru/developers/payment-acceptance/receipts/54fz/yoomoney/parameters-values
+YOUKASSA_VAT_CODE: int = int((os.environ.get("YOUKASSA_VAT_CODE") or "1").strip())
+_ts = (os.environ.get("YOUKASSA_TAX_SYSTEM_CODE") or "").strip()
+YOUKASSA_TAX_SYSTEM_CODE: Optional[int] = int(_ts) if _ts.isdigit() else None

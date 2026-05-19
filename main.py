@@ -8,13 +8,14 @@ from bot import bot
 from config import SUB_PAGE_API_KEY, WEB_API_PORT
 from config_bd.models import create_tables
 from web_api import app as subpage_app
-from payments import pay_stars, pay_cryptobot, pay_platega, pay_freekassa
+from payments import pay_stars, pay_cryptobot, pay_platega, pay_freekassa, pay_youkassa
 # from payments import pay_wata
 from sheduler.check_connect import check_connect
 from sheduler.check_cryptobot import check_cryptobot_payments
 from sheduler.check_online import check_online_daily
 from sheduler.check_platega import check_platega, check_platega_card, check_platega_crypto
 from sheduler.check_fk import check_fk
+from sheduler.check_youkassa import check_youkassa_payments
 from sheduler.check_wata_sbp import check_wata_sbp
 from sheduler.check_wata_card import check_wata_card
 from handlers import handlers_user, handlers_statistic, handlers_admin, handlers_broadcast, handlers_export, handlers_import
@@ -44,6 +45,7 @@ async def main() -> None:
     # dp.include_router(pay_platega.router)
     # dp.include_router(pay_wata.router)
     dp.include_router(pay_freekassa.router)
+    dp.include_router(pay_youkassa.router)
     dp.include_router(pay_stars.router)
     dp.include_router(pay_cryptobot.router)
 
@@ -55,6 +57,7 @@ async def main() -> None:
     # scheduler.add_job(check_platega_card, trigger='interval', minutes=1, misfire_grace_time=10)
     # scheduler.add_job(check_platega_crypto, trigger='interval', minutes=1, misfire_grace_time=10)
     scheduler.add_job(check_fk, trigger='interval', minutes=1, misfire_grace_time=10)
+    scheduler.add_job(check_youkassa_payments, trigger='interval', minutes=1, misfire_grace_time=10)
     scheduler.add_job(check_wata_sbp, trigger='interval', minutes=1, misfire_grace_time=10)
     scheduler.add_job(check_wata_card, trigger='interval', minutes=1, misfire_grace_time=10)
     scheduler.add_job(check_cryptobot_payments, trigger='interval', minutes=1, misfire_grace_time=10)

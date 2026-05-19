@@ -5,6 +5,7 @@ from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
 from config import CHANEL_URL, BOT_URL
+from lexicon import TARIFF_BTN_R_30, TARIFF_BTN_R_90, TARIFF_BTN_R_365
 
 STYLE_PRIMARY = "primary"
 STYLE_SUCCESS = "success"
@@ -15,6 +16,8 @@ BTN_BACK = "🔙 Назад"
 _DEFAULT_CALLBACK_STYLES: dict[str, str] = {
     "buy_vpn": STYLE_SUCCESS,
     "free_vpn": STYLE_SUCCESS,
+    "trial_pay": STYLE_SUCCESS,
+    "my_account": STYLE_SUCCESS,
     "connect_vpn": STYLE_PRIMARY,
     "ref": STYLE_PRIMARY,
     "buy_gift": STYLE_SUCCESS,
@@ -62,15 +65,15 @@ def create_kb(
 _STYLES_TARIFF = {
     "r_30": STYLE_PRIMARY,
     "r_90": STYLE_PRIMARY,
-    "r_240": STYLE_SUCCESS,
+    "r_365": STYLE_SUCCESS,
     "r_white_30": STYLE_PRIMARY,
-    "free_vpn": STYLE_SUCCESS,
+    "trial_pay": STYLE_SUCCESS,
 }
 
 _STYLES_GIFT = {
     "gift_r_30": STYLE_PRIMARY,
     "gift_r_90": STYLE_PRIMARY,
-    "gift_r_240": STYLE_SUCCESS,
+    "gift_r_365": STYLE_SUCCESS,
 }
 
 
@@ -90,15 +93,16 @@ def chanel_keyboard():
 def keyboard_start_bonus():
     return create_kb(
         1,
-        styles={"free_vpn": STYLE_SUCCESS, "buy_vpn": STYLE_PRIMARY},
-        free_vpn="✨ Попробовать 3 дня бесплатно",
-        buy_vpn="🛒 Купить от 120₽ в месяц",
+        styles={"trial_pay": STYLE_SUCCESS, "buy_vpn": STYLE_PRIMARY},
+        trial_pay="✨ Попробовать 3 дня за 1₽",
+        buy_vpn="🛒 Купить от 150₽ в месяц",
     )
 
 
 def keyboard_start():
     return create_kb(
         1,
+        my_account="👤 Мой аккаунт",
         buy_vpn="🛒 Купить подписку",
         connect_vpn="🔗 Подключить Open 21 VPN",
         ref="👥 Рефералка",
@@ -106,14 +110,37 @@ def keyboard_start():
     )
 
 
+def keyboard_my_account(*, autopay_on: bool) -> InlineKeyboardMarkup:
+    back = "🔙 Назад"
+    if autopay_on:
+        return create_kb(
+            1,
+            styles={
+                "account_autopay_off": STYLE_DANGER,
+                "back_to_main": STYLE_PRIMARY,
+            },
+            account_autopay_off="🚫 Отключить автоплатежи",
+            back_to_main=back,
+        )
+    return create_kb(
+        1,
+        styles={
+            "account_autopay_on": STYLE_SUCCESS,
+            "back_to_main": STYLE_PRIMARY,
+        },
+        account_autopay_on="✅ Включить автоплатежи",
+        back_to_main=back,
+    )
+
+
 def keyboard_tariff_bonus():
     return create_kb(
         1,
         styles=_STYLES_TARIFF,
-        r_30="🤝 30 дней - 199 руб",
-        r_90="👌 90 дней - 539 руб (выгода -10%)",
-        r_240="💪 240 дней - 999 руб (выгода -40%)",
-        free_vpn="✨ ПОПРОБОВАТЬ 3 дня БЕСПЛАТНО ✨",
+        r_30=TARIFF_BTN_R_30,
+        r_90=TARIFF_BTN_R_90,
+        r_365=TARIFF_BTN_R_365,
+        trial_pay="✨ Попробовать 3 дня за 1₽",
         back_to_main="🔙 Назад",
     )
 
@@ -121,10 +148,10 @@ def keyboard_tariff_bonus():
 def keyboard_tariff():
     return create_kb(
         1,
-        styles={k: v for k, v in _STYLES_TARIFF.items() if k != "free_vpn"},
-        r_30="🤝 30 дней - 199 руб",
-        r_90="👌 90 дней - 539 руб (выгода -10%)",
-        r_240="💪 240 дней - 999 руб (выгода -40%)",
+        styles={k: v for k, v in _STYLES_TARIFF.items() if k != "trial_pay"},
+        r_30=TARIFF_BTN_R_30,
+        r_90=TARIFF_BTN_R_90,
+        r_365=TARIFF_BTN_R_365,
         # r_white_30="🦾 Ускоритель игр Mobile - 299 руб",
         back_to_main="🔙 Назад",
     )
@@ -134,11 +161,11 @@ def keyboard_tariff_trial():
     """Тарифы для пушей до конца подписки у пользователей без полной оплаты (reserve_field=False)."""
     return create_kb(
         1,
-        styles={k: v for k, v in _STYLES_TARIFF.items() if k != "free_vpn"},
-        r_30="🤝 30 дней - 199 руб",
-        r_90="👌 90 дней - 539 руб (выгода -10%)",
-        r_240="💪 240 дней - 999 руб (выгода -40%)",
-        # r_white_30="🦾 Ускоритель игр Mobile - 299 руб",
+        styles={k: v for k, v in _STYLES_TARIFF.items() if k != "trial_pay"},
+        r_30=TARIFF_BTN_R_30,
+        r_90=TARIFF_BTN_R_90,
+        r_365=TARIFF_BTN_R_365,
+        trial_pay="✨ Попробовать 3 дня за 1₽",
         back_to_main="🔙 Назад",
     )
 
@@ -147,9 +174,9 @@ def keyboard_gift_tariff():
     return create_kb(
         1,
         styles=_STYLES_GIFT,
-        gift_r_30="🤝 30 дней - 199 руб",
-        gift_r_90="👌 90 дней - 539 руб (выгода -10%)",
-        gift_r_240="💪 240 дней - 999 руб (выгода -40%)",
+        gift_r_30=TARIFF_BTN_R_30,
+        gift_r_90=TARIFF_BTN_R_90,
+        gift_r_365=TARIFF_BTN_R_365,
         back_to_main="🔙 Назад",
     )
 
@@ -343,6 +370,29 @@ def keyboard_payment_cancel():
         ]
     )
     return keyboard
+
+
+def keyboard_payment_method_trial(tarif):
+    """ЮKassa только для пробного тарифа."""
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text="⚡ СБП (ЮKassa)",
+                    callback_data=f"yk_sbp_{tarif}",
+                    style=STYLE_SUCCESS,
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    text="💳 Карта (ЮKassa)",
+                    callback_data=f"yk_card_{tarif}",
+                    style=STYLE_PRIMARY,
+                )
+            ],
+            [InlineKeyboardButton(text="🔙 Назад", callback_data="back_to_main")],
+        ]
+    )
 
 
 def keyboard_payment_method(tarif):

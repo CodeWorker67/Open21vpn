@@ -135,6 +135,9 @@ async def send_message_cron(bot: Bot):
                 keyboard = keyboard_tariff_trial()
 
             if now < end:
+                if await sql.user_has_yookassa_autopay_active(user_id):
+                    continue
+
                 t7 = end - timedelta(days=7)
                 t3 = end - timedelta(days=3)
                 t1 = end - timedelta(days=1)

@@ -41,6 +41,9 @@ class Users(Base):
     field_bool_1 = Column(Boolean, default=False)
     field_bool_2 = Column(Boolean, default=False)
     field_bool_3 = Column(Boolean, default=False)
+    yookassa_payment_method_id = Column(String(255), nullable=True)
+    yookassa_autorenew_cooldown_until = Column(DateTime, nullable=True)
+    yookassa_autopay_enabled = Column(Boolean, default=False)
 
 
 class Gifts(Base):
@@ -134,6 +137,19 @@ class PaymentsFkSBP(Base):
     nonce = Column(BigInteger, nullable=False)
     signature = Column(String, nullable=True)
     method = Column(String, nullable=False, default='fksbp')
+
+
+class PaymentsYoukassa(Base):
+    __tablename__ = 'payments_youkassa'
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    user_id = Column(BigInteger, nullable=False)
+    amount = Column(Integer, nullable=False)
+    time_created = Column(DateTime, default=datetime.now)
+    is_gift = Column(Boolean, default=False)
+    status = Column(String, nullable=True)
+    transaction_id = Column(String, nullable=True)
+    payload = Column(String, nullable=True)
 
 
 class PaymentsStars(Base):

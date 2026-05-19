@@ -56,16 +56,16 @@ async def send_push_cron(debug: bool = False):
                             keyboard_broadcast_mes = create_kb(
                                 1,
                                 styles={
-                                    'free_vpn': STYLE_SUCCESS,
+                                    'trial_pay': STYLE_SUCCESS,
                                     'video_faq': STYLE_PRIMARY,
                                 },
-                                free_vpn='✨ 3 дня бесплатно',
+                                trial_pay='✨ 3 дня за 1₽',
                                 video_faq='🎥 Видеоинструкция',
                             )
                             keyboard_broadcast_video = create_kb(
                                 1,
-                                styles={'free_vpn': STYLE_SUCCESS},
-                                free_vpn='✨ 3 дня бесплатно',
+                                styles={'trial_pay': STYLE_SUCCESS},
+                                trial_pay='✨ 3 дня за 1₽',
                             )
                             if video_flag:
                                 await bot.send_video(

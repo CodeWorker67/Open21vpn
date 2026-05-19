@@ -1,15 +1,18 @@
 import time
 import requests
+from datetime import datetime
 
 from bot import sql, x3, bot
 from config import CHANEL_ID, BOT_URL
-from lead_tracker import post_user_registered, post_user_trial, tracker_source_from_ref_and_stamp
+from lead_tracker import post_user_registered, tracker_source_from_ref_and_stamp
 from keyboard import (create_kb, keyboard_start, keyboard_start_bonus, keyboard_tariff_bonus, keyboard_tariff,
-                      keyboard_subscription, keyboard_sub_after_free, ref_keyboard, keyboard_gift_tariff,
-                      keyboard_payment_method, chanel_keyboard, keyboard_inline_ref)
+                      keyboard_subscription, ref_keyboard, keyboard_gift_tariff,
+                      keyboard_payment_method, keyboard_payment_method_trial, chanel_keyboard, keyboard_inline_ref,
+                      keyboard_my_account)
 from logging_config import logger
 import asyncio
 from aiogram import Router, F
+from aiogram.exceptions import TelegramBadRequest
 from aiogram.types import Message, CallbackQuery, ChatMemberUpdated, InlineQuery, InlineQueryResultArticle, \
     InputTextMessageContent
 from aiogram.filters import ChatMemberUpdatedFilter, KICKED, MEMBER, Command
@@ -17,6 +20,27 @@ from lexicon import lexicon
 
 
 router: Router = Router()
+
+
+def _my_account_text_html(subscription_end_date, *, autopay_on: bool) -> str:
+    now = datetime.now()
+    if subscription_end_date is None:
+        status = "не активна"
+        date_human = "Вы еще не подписаны"
+    elif subscription_end_date > now:
+        status = "активна"
+        date_human = subscription_end_date.strftime("%d.%m.%Y %H:%M:%S")
+    else:
+        status = "не активна"
+        date_human = subscription_end_date.strftime("%d.%m.%Y %H:%M:%S")
+    ap = "подключены" if autopay_on else "отключены"
+    return (
+        "<b>👤 Мой аккаунт</b>\n\n"
+        f"📊 <b>Статус:</b> {status}\n"
+        f"📅 <b>Дата окончания:</b> {date_human}\n"
+        f"💳 <b>Автоплатежи:</b> {ap}\n\n"
+        "<i>После пробного периода подписка может продлеваться автоматически за 349 ₽/мес.</i>"
+    )
 
 
 # Этот хэндлер срабатывает на команду /start
@@ -170,21 +194,64 @@ async def direct_connect_vpn_cb(callback: CallbackQuery):
     await callback.answer()
 
 
-@router.callback_query(F.data.in_({'r_30', 'r_90', 'r_240', 'r_white_30'}))
-async def process_payment_method(callback: CallbackQuery):
+@router.callback_query(F.data == 'my_account')
+async def my_account_cb(callback: CallbackQuery):
     await callback.answer()
-    text = lexicon['payment_link']
-    if 'white' in callback.data:
-        await sql.add_white_counter_if_not_exists(callback.from_user.id)
-        text = lexicon['payment_link_white']
-    text += '\n\nВыберите способ оплаты:'
-    tariff = callback.data
-    await callback.message.answer(text, reply_markup=keyboard_payment_method(tariff))
+    user_data = await sql.get_user(callback.from_user.id)
+    sub_end = user_data[9] if user_data else None
+    autopay_on = await sql.user_has_yookassa_autopay_active(callback.from_user.id)
+    text = _my_account_text_html(sub_end, autopay_on=autopay_on)
+    await callback.message.answer(
+        text=text,
+        reply_markup=keyboard_my_account(autopay_on=autopay_on),
+        parse_mode="HTML",
+        disable_web_page_preview=True,
+    )
 
 
-@router.callback_query(F.data == 'free_vpn')
-async def free_vpn_cb(callback: CallbackQuery):
-    day = 3
+@router.callback_query(F.data == 'account_autopay_off')
+async def account_autopay_off_cb(callback: CallbackQuery):
+    await callback.answer()
+    await sql.update_user_yookassa_autopay_enabled(callback.from_user.id, False)
+    user_data = await sql.get_user(callback.from_user.id)
+    sub_end = user_data[9] if user_data else None
+    text = _my_account_text_html(sub_end, autopay_on=False)
+    try:
+        await callback.message.edit_text(
+            text=text,
+            reply_markup=keyboard_my_account(autopay_on=False),
+            parse_mode="HTML",
+            disable_web_page_preview=True,
+        )
+    except TelegramBadRequest as e:
+        if "message is not modified" not in str(e).lower():
+            raise
+
+
+@router.callback_query(F.data == 'account_autopay_on')
+async def account_autopay_on_cb(callback: CallbackQuery):
+    user_data = await sql.get_user(callback.from_user.id)
+    pm_id = user_data[27] if user_data and len(user_data) > 27 else None
+    if not pm_id:
+        await callback.answer(lexicon["autopay_no_method"], show_alert=True)
+        return
+    await callback.answer()
+    await sql.update_user_yookassa_autopay_enabled(callback.from_user.id, True)
+    sub_end = user_data[9] if user_data else None
+    text = _my_account_text_html(sub_end, autopay_on=True)
+    try:
+        await callback.message.edit_text(
+            text=text,
+            reply_markup=keyboard_my_account(autopay_on=True),
+            parse_mode="HTML",
+            disable_web_page_preview=True,
+        )
+    except TelegramBadRequest as e:
+        if "message is not modified" not in str(e).lower():
+            raise
+
+
+async def _trial_pay_flow(callback: CallbackQuery) -> None:
     user_data = await sql.get_user(callback.from_user.id)
     in_panel = False
     if user_data is not None and len(user_data) > 4:
@@ -197,23 +264,61 @@ async def free_vpn_cb(callback: CallbackQuery):
         )
         return
     await callback.answer()
-    logger.info(await x3.addClient(day, str(callback.from_user.id), int(callback.from_user.id)))
-    result_active = await x3.activ(str(callback.from_user.id))
-    time = result_active['time']
-
-    if await sql.get_user(callback.from_user.id) is not None:
-        await sql.update_in_panel(callback.from_user.id)
-    else:
-        await sql.add_user(callback.from_user.id, True)
-    user_id = str(callback.from_user.id)
-    sub_url = await x3.sublink(user_id)
-
     await callback.message.answer(
-        text=lexicon['buy_success'].format(time, sub_url),
-        reply_markup=keyboard_sub_after_free(sub_url),
+        text=lexicon['trial_pay_intro'],
+        reply_markup=keyboard_payment_method_trial('r_3'),
+        parse_mode='HTML',
         disable_web_page_preview=True,
     )
-    await post_user_trial(callback.from_user.id)
+
+
+@router.callback_query(F.data == 'trial_pay')
+async def trial_pay_cb(callback: CallbackQuery):
+    await _trial_pay_flow(callback)
+
+
+@router.callback_query(F.data == 'r_3')
+async def r_3_trial_cb(callback: CallbackQuery):
+    await _trial_pay_flow(callback)
+
+
+@router.callback_query(F.data.in_({'r_30', 'r_90', 'r_365'}))
+async def process_payment_method(callback: CallbackQuery):
+    await callback.answer()
+    text = lexicon['payment_link']
+    if 'white' in callback.data:
+        await sql.add_white_counter_if_not_exists(callback.from_user.id)
+        text = lexicon['payment_link_white']
+    text += '\n\nВыберите способ оплаты:'
+    tariff = callback.data
+    await callback.message.answer(text, reply_markup=keyboard_payment_method(tariff))
+
+
+@router.callback_query(F.data == 'r_240')
+async def r_240_legacy_cb(callback: CallbackQuery):
+    await callback.answer()
+    text = lexicon['payment_link'] + '\n\nВыберите способ оплаты:'
+    await callback.message.answer(text, reply_markup=keyboard_payment_method('r_365'))
+
+
+@router.callback_query(F.data == 'gift_r_240')
+async def gift_r_240_legacy_cb(callback: CallbackQuery):
+    await callback.answer()
+    text = lexicon['payment_link'] + '\n\nВыберите способ оплаты <b>подарочной подписки</b>:'
+    await callback.message.answer(text, reply_markup=keyboard_payment_method('gift_r_365'), parse_mode='HTML')
+
+
+@router.callback_query(F.data == 'free_vpn')
+async def free_vpn_legacy_cb(callback: CallbackQuery):
+    """Старые клавиатуры с callback free_vpn."""
+    await callback.answer()
+    await callback.message.answer(
+        text='Пробный период теперь оформляется за <b>1 ₽</b> через ЮKassa (3 дня). '
+             'Выберите действие ниже.',
+        reply_markup=keyboard_start_bonus(),
+        parse_mode='HTML',
+        disable_web_page_preview=True,
+    )
 
 
 @router.callback_query(F.data == 'info')

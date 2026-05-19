@@ -112,14 +112,20 @@ class X3:
         chars = string.ascii_letters + string.digits
         return ''.join(random.choice(chars) for _ in range(length))
 
-    async def addClient(self, day, user_id_str, user_id):
-        """Добавляет нового клиента"""
+    @staticmethod
+    def _subscription_delta(*, day: int, minutes: int | None = None) -> datetime.timedelta:
+        if minutes is not None:
+            return datetime.timedelta(minutes=minutes)
+        return datetime.timedelta(days=day)
+
+    async def addClient(self, day, user_id_str, user_id, *, minutes: int | None = None):
+        """Добавляет нового клиента. minutes — альтернатива day (для короткого пробного периода)."""
         try:
             client_id = self.generate_client_id(user_id)
             if 'white' in user_id_str:
                 client_id = self.generate_client_id(user_id * 100)
             current_time = datetime.datetime.now(datetime.timezone.utc)
-            expire_time = current_time + datetime.timedelta(days=day)
+            expire_time = current_time + self._subscription_delta(day=day, minutes=minutes)
             vless_uuid = str(uuid.uuid1())
 
             if 'white' in user_id_str:
@@ -205,8 +211,8 @@ class X3:
             logger.error(traceback.format_exc())
             return False
 
-    async def updateClient(self, day, user_id_str, user_id):
-        """Обновляет клиента - добавляет дни к подписке"""
+    async def updateClient(self, day, user_id_str, user_id, *, minutes: int | None = None):
+        """Обновляет клиента — продлевает подписку на day дней или minutes минут."""
         try:
             # Получаем данные пользователя
             user_response = await self.get_user_by_username(user_id_str)
@@ -229,17 +235,18 @@ class X3:
             current_expire_at = datetime.datetime.fromisoformat(expire_at_str.replace('Z', '+00:00'))
             now = datetime.datetime.now(datetime.timezone.utc)
 
+            delta = self._subscription_delta(day=day, minutes=minutes)
             # Определяем новую дату истечения
             if current_expire_at < now:
                 # Подписка истекла - начинаем с текущего момента
-                new_expire_at = now + datetime.timedelta(days=day)
+                new_expire_at = now + delta
                 status = 'ACTIVE'  # Активируем подписку
-                logger.info(f"Подписка пользователя {user_id_str} истекла. Активируем и добавляем {day} дней")
+                logger.info(f"Подписка пользователя {user_id_str} истекла. Активируем и продлеваем на {delta}")
             else:
                 # Подписка активна - добавляем к существующей дате
-                new_expire_at = current_expire_at + datetime.timedelta(days=day)
+                new_expire_at = current_expire_at + delta
                 status = user.get('status', 'ACTIVE')
-                logger.info(f"Подписка пользователя {user_id_str} активна. Добавляем {day} дней")
+                logger.info(f"Подписка пользователя {user_id_str} активна. Продлеваем на {delta}")
 
             # Обрабатываем activeInternalSquads
             raw_squads = user.get('activeInternalSquads', [])
@@ -263,7 +270,7 @@ class X3:
             logger.info(f"Обновление пользователя {user_id_str}:")
             logger.info(f"  Старая дата: {current_expire_at.strftime('%Y-%m-%d %H:%M:%S')}")
             logger.info(f"  Новая дата: {new_expire_at.strftime('%Y-%m-%d %H:%M:%S')}")
-            logger.info(f"  Добавлено дней: {day}")
+            logger.info(f"  Продление: {delta}")
 
             session = await self._get_session()
             async with session.patch(

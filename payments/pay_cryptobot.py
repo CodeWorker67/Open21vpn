@@ -146,6 +146,8 @@ async def process_payment_crypto(callback: CallbackQuery):
         duration_key = data.replace('crypto_gift_r_', '')
     else:
         duration_key = data.replace('crypto_r_', '')
+    if duration_key == '240':
+        duration_key = '365'
 
     rub_amount = dct_price[duration_key]
     desc_key = duration_key

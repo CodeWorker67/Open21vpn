@@ -35,7 +35,8 @@ FK_SBP_SUBPAGE_PRICE_RUB: dict[str, int] = {
     "30": dct_price["30"],
     "90": dct_price["90"],
     "180": 849,
-    "240": dct_price["240"],
+    "365": dct_price["365"],
+    "240": dct_price["365"],
     "3000": 12999,
 }
 
@@ -56,17 +57,17 @@ class FkSbpPayBody(BaseModel):
 
 class FkCardPayBody(BaseModel):
     user_id: int = Field(..., description="Telegram user id")
-    duration: Literal["30", "90", "240"]
+    duration: Literal["30", "90", "365", "240"]
 
 
 class StarsPayBody(BaseModel):
     user_id: int = Field(..., description="Telegram user id")
-    duration: Literal["30", "90", "240"]
+    duration: Literal["30", "90", "365", "240"]
 
 
 class CryptobotPayBody(BaseModel):
     user_id: int = Field(..., description="Telegram user id")
-    duration: Literal["30", "90", "240"]
+    duration: Literal["30", "90", "365", "240"]
 
 
 class PayUrlResponse(BaseModel):

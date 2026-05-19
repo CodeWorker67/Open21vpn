@@ -55,7 +55,7 @@ function subPagePayFromBuild(): { apiBase: string; apiKey: string } {
     }
 }
 
-type DurationId = '30' | '90' | '240'
+type DurationId = '30' | '90' | '365' | '240'
 type PayMethodId = 'fk_sbp' | 'fk_card' | 'stars' | 'cryptobot'
 
 const PAY_METHODS: ReadonlyArray<{ id: PayMethodId; label: string }> = [
@@ -221,9 +221,9 @@ function SubscriptionPayBlock({ isMobile }: { isMobile: boolean }) {
                     </Accordion.Control>
                     <Accordion.Panel>
                         <Stack gap="sm">
-                            {tariffBtn('30 дней — 199 ₽', '30')}
-                            {tariffBtn('90 дней — 539 ₽ (выгода −10%)', '90')}
-                            {tariffBtn('240 дней — 999 ₽ (выгода −40%)', '240')}
+                            {tariffBtn('1 месяц — 349 ₽', '30')}
+                            {tariffBtn('3 месяца — 749 ₽ (выгода −30%)', '90')}
+                            {tariffBtn('12 месяцев — 1799 ₽ (выгода −60%)', '365')}
                         </Stack>
                     </Accordion.Panel>
                 </Accordion.Item>

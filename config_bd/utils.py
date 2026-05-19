@@ -7,7 +7,8 @@ from datetime import datetime, date, timezone, timedelta
 from typing import Optional, List, Tuple, Dict, Any, Set
 
 from config_bd.models import AsyncSessionLocal, Users, Payments, Gifts, PaymentsCryptobot, PaymentsStars, Online, \
-    WhiteCounter, PaymentsCards, PaymentsPlategaCrypto, PaymentsWataSBP, PaymentsWataCard, PaymentsFkSBP
+    WhiteCounter, PaymentsCards, PaymentsPlategaCrypto, PaymentsWataSBP, PaymentsWataCard, PaymentsFkSBP, \
+    PaymentsYoukassa
 from lexicon import TRIAL_TARIFF_PAYMENT_RUB
 from logging_config import logger
 
@@ -64,7 +65,7 @@ def _payment_row_is_trial_tariff(
         amt = int(float(pr.get('amount', -1)))
     except (ValueError, TypeError):
         return False
-    return duration == 3 and amt == TRIAL_TARIFF_PAYMENT_RUB
+    return duration == 3 and amt in (TRIAL_TARIFF_PAYMENT_RUB, 10)
 
 
 # Пакетная обработка для /stat: меньше 999 — лимит переменных SQLite в одном запросе.
@@ -92,6 +93,9 @@ class AsyncSQL:
                     user.password, user.activation_pass,
                     user.field_str_1, user.field_str_2, user.field_str_3,
                     user.field_bool_1, user.field_bool_2, user.field_bool_3,
+                    user.yookassa_payment_method_id,
+                    user.yookassa_autorenew_cooldown_until,
+                    user.yookassa_autopay_enabled,
                 )
             return None
 
@@ -166,6 +170,15 @@ class AsyncSQL:
                     PaymentsFkSBP.amount != 1,
                 )
                 for (uid,) in (await session.execute(stmt_fk)).all():
+                    out.add(int(uid))
+                stmt_yk = select(PaymentsYoukassa.user_id).distinct().where(
+                    PaymentsYoukassa.user_id.in_(chunk),
+                    PaymentsYoukassa.status == 'confirmed',
+                    PaymentsYoukassa.is_gift == False,
+                    PaymentsYoukassa.amount > trial,
+                    PaymentsYoukassa.amount != 1,
+                )
+                for (uid,) in (await session.execute(stmt_yk)).all():
                     out.add(int(uid))
 
                 stmt_st = select(PaymentsStars.user_id).distinct().where(
@@ -266,6 +279,7 @@ class AsyncSQL:
             (PaymentsWataSBP, False),
             (PaymentsWataCard, False),
             (PaymentsFkSBP, False),
+            (PaymentsYoukassa, False),
             (PaymentsStars, False),
             (PaymentsCryptobot, True),
         )
@@ -673,6 +687,7 @@ class AsyncSQL:
                     select(PaymentsWataSBP.user_id).where(PaymentsWataSBP.status == "confirmed"),
                     select(PaymentsWataCard.user_id).where(PaymentsWataCard.status == "confirmed"),
                     select(PaymentsFkSBP.user_id).where(PaymentsFkSBP.status == "confirmed"),
+                    select(PaymentsYoukassa.user_id).where(PaymentsYoukassa.status == "confirmed"),
                 )
                 .subquery()
             )
@@ -821,6 +836,11 @@ class AsyncSQL:
                     PaymentsFkSBP.status == 'confirmed',
                 )
                 total_payments += (await session.execute(stmt_fk)).scalar() or 0
+                stmt_yk = select(func.coalesce(func.sum(PaymentsYoukassa.amount), 0)).where(
+                    PaymentsYoukassa.user_id.in_(chunk),
+                    PaymentsYoukassa.status == 'confirmed',
+                )
+                total_payments += (await session.execute(stmt_yk)).scalar() or 0
                 stmt_st = select(PaymentsStars.amount).where(
                     PaymentsStars.user_id.in_(chunk),
                     PaymentsStars.status == 'confirmed',
@@ -1219,6 +1239,127 @@ class AsyncSQL:
                 logger.error(f"❌ Ошибка записи платежа FreeKassa: {e}")
                 raise
 
+    async def add_youkassa_payment(
+        self,
+        user_id: int,
+        amount: int,
+        status: str,
+        transaction_id: str,
+        payload: str,
+        *,
+        is_gift: bool = False,
+    ) -> None:
+        async with self.session_factory() as session:
+            payment = PaymentsYoukassa(
+                user_id=user_id,
+                amount=amount,
+                status=status,
+                transaction_id=transaction_id,
+                payload=payload,
+                is_gift=is_gift,
+            )
+            session.add(payment)
+            try:
+                await session.commit()
+                logger.success(
+                    f"💰 Платёж ЮKassa записан: user_id={user_id}, amount={amount}, is_gift={is_gift}, id={transaction_id}"
+                )
+            except Exception as e:
+                await session.rollback()
+                logger.error(f"❌ Ошибка записи платежа ЮKassa: {e}")
+                raise
+
+    async def get_pending_youkassa_payments(self):
+        async with self.session_factory() as session:
+            stmt = select(PaymentsYoukassa).where(PaymentsYoukassa.status == "pending")
+            result = await session.execute(stmt)
+            return result.scalars().all()
+
+    async def update_youkassa_payment_status(self, transaction_id: str, new_status: str) -> None:
+        async with self.session_factory() as session:
+            stmt = (
+                update(PaymentsYoukassa)
+                .where(PaymentsYoukassa.transaction_id == transaction_id)
+                .values(status=new_status)
+            )
+            await session.execute(stmt)
+            await session.commit()
+
+    async def update_user_yookassa_payment_method(self, user_id: int, payment_method_id: Optional[str]) -> None:
+        async with self.session_factory() as session:
+            stmt = update(Users).where(Users.user_id == user_id).values(
+                yookassa_payment_method_id=payment_method_id
+            )
+            await session.execute(stmt)
+            await session.commit()
+
+    async def update_user_yookassa_autopay_enabled(self, user_id: int, enabled: bool) -> None:
+        async with self.session_factory() as session:
+            stmt = update(Users).where(Users.user_id == user_id).values(
+                yookassa_autopay_enabled=enabled
+            )
+            await session.execute(stmt)
+            await session.commit()
+
+    async def user_has_yookassa_autopay_active(self, user_id: int) -> bool:
+        async with self.session_factory() as session:
+            stmt = select(
+                Users.yookassa_payment_method_id,
+                Users.yookassa_autopay_enabled,
+            ).where(Users.user_id == user_id)
+            row = (await session.execute(stmt)).one_or_none()
+            if not row:
+                return False
+            pm_id, enabled = row[0], row[1]
+            return bool(pm_id) and bool(enabled)
+
+    async def clear_yookassa_autorenew_cooldown(self, user_id: int) -> None:
+        async with self.session_factory() as session:
+            stmt = update(Users).where(Users.user_id == user_id).values(
+                yookassa_autorenew_cooldown_until=None
+            )
+            await session.execute(stmt)
+            await session.commit()
+
+    async def set_yookassa_autorenew_cooldown(self, user_id: int, until: datetime) -> None:
+        async with self.session_factory() as session:
+            stmt = update(Users).where(Users.user_id == user_id).values(
+                yookassa_autorenew_cooldown_until=until
+            )
+            await session.execute(stmt)
+            await session.commit()
+
+    async def user_has_pending_youkassa_autorenew(self, user_id: int) -> bool:
+        async with self.session_factory() as session:
+            stmt = (
+                select(PaymentsYoukassa.id)
+                .where(
+                    PaymentsYoukassa.user_id == user_id,
+                    PaymentsYoukassa.status == "pending",
+                    PaymentsYoukassa.payload.like("%auto_renew:True%"),
+                )
+                .limit(1)
+            )
+            return (await session.execute(stmt)).scalar_one_or_none() is not None
+
+    async def select_users_for_yookassa_autorenew(self) -> List[Tuple[int, Optional[str]]]:
+        now = datetime.now()
+        async with self.session_factory() as session:
+            stmt = select(Users.user_id, Users.yookassa_payment_method_id).where(
+                Users.in_panel == True,
+                Users.is_delete == False,
+                Users.yookassa_payment_method_id.isnot(None),
+                Users.yookassa_autopay_enabled == True,
+                Users.subscription_end_date.isnot(None),
+                Users.subscription_end_date < now,
+                or_(
+                    Users.yookassa_autorenew_cooldown_until.is_(None),
+                    Users.yookassa_autorenew_cooldown_until < now,
+                ),
+            )
+            rows = (await session.execute(stmt)).all()
+            return [(int(r[0]), r[1]) for r in rows]
+
     async def get_active_cryptobot_payments(self) -> List[PaymentsCryptobot]:
         """
         Возвращает все платежи Cryptobot со статусом 'active'.
@@ -1446,6 +1587,7 @@ class AsyncSQL:
             payments_wata_sbp_list = (await session.execute(select(PaymentsWataSBP))).scalars().all()
             payments_wata_card_list = (await session.execute(select(PaymentsWataCard))).scalars().all()
             payments_fk_sbp_list = (await session.execute(select(PaymentsFkSBP))).scalars().all()
+            payments_youkassa_list = (await session.execute(select(PaymentsYoukassa))).scalars().all()
             payments_stars_list = (await session.execute(select(PaymentsStars))).scalars().all()
             payments_cryptobot_list = (await session.execute(select(PaymentsCryptobot))).scalars().all()
             gifts_list = (await session.execute(select(Gifts))).scalars().all()
@@ -1459,6 +1601,7 @@ class AsyncSQL:
             "payments_wata_sbp": payments_wata_sbp_list,
             "payments_wata_card": payments_wata_card_list,
             "payments_fk_sbp": payments_fk_sbp_list,
+            "payments_youkassa": payments_youkassa_list,
             "payments_stars": payments_stars_list,
             "payments_cryptobot": payments_cryptobot_list,
             "gifts": gifts_list,

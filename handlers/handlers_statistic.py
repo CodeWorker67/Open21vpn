@@ -18,7 +18,7 @@ from config import ADMIN_IDS
 from lexicon import TRIAL_TARIFF_PAYMENT_RUB
 from logging_config import logger
 from config_bd.models import AsyncSessionLocal, Users, Payments, PaymentsStars, PaymentsCryptobot, PaymentsCards, \
-    PaymentsPlategaCrypto, PaymentsWataSBP, PaymentsWataCard, PaymentsFkSBP
+    PaymentsPlategaCrypto, PaymentsWataSBP, PaymentsWataCard, PaymentsFkSBP, PaymentsYoukassa
 
 router = Router()
 
@@ -380,8 +380,17 @@ async def analytics_export(message: Message):
                 )
                 paid_wata_card = {row[0] for row in (await session.execute(stmt_paid_wata_card)).all()}
 
+                stmt_paid_youkassa = select(PaymentsYoukassa.user_id).distinct().where(
+                    PaymentsYoukassa.status == 'confirmed',
+                    PaymentsYoukassa.is_gift == False,
+                    PaymentsYoukassa.amount > trial_amt,
+                    PaymentsYoukassa.amount != 1,
+                )
+                paid_youkassa = {row[0] for row in (await session.execute(stmt_paid_youkassa)).all()}
+
                 all_paid_users = paid_main.union(paid_stars).union(paid_crypto).union(paid_cards).union(
-                    paid_platega_crypto).union(paid_fk_sbp).union(paid_wata_sbp).union(paid_wata_card)
+                    paid_platega_crypto).union(paid_fk_sbp).union(paid_wata_sbp).union(paid_wata_card).union(
+                    paid_youkassa)
 
                 for uid in set_new_total:
                     if uid in all_paid_users:

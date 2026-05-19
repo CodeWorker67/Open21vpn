@@ -26,6 +26,7 @@ from keyboard import (
     keyboard_start,
     keyboard_tariff,
 )
+from lexicon import TARIFF_BTN_R_30, TARIFF_BTN_R_90, TARIFF_BTN_R_365
 from logging_config import logger
 from telegram_ids import is_telegram_chat_id
 
@@ -64,15 +65,17 @@ SCOPE_LABEL = {
 
 # callback_data и подписи как в keyboard.py (главное меню и тарифы)
 CUSTOM_PRESETS = [
-    ("free_vpn", "✨ 3 дня бесплатно", STYLE_SUCCESS),
+    ("trial_pay", "✨ 3 дня за 1₽", STYLE_SUCCESS),
+    ("free_vpn", "✨ 3 дня за 1₽ (legacy)", STYLE_SUCCESS),
     ("buy_vpn", "🛒 Купить подписку", STYLE_SUCCESS),
     ("connect_vpn", "🔗 Подключить Open 21 VPN", STYLE_PRIMARY),
     ("ref", "👥 Рефералка", STYLE_PRIMARY),
     ("buy_gift", "🎁 Подарить подписку", STYLE_SUCCESS),
     ("start_gift", "🎁 Подарить подписку", STYLE_SUCCESS),
-    ("r_30", "🤝 30 дней - 199 руб", STYLE_PRIMARY),
-    ("r_90", "👌 90 дней - 539 руб (выгода -10%)", STYLE_PRIMARY),
-    ("r_240", "💪 240 дней - 999 руб (выгода -40%)", STYLE_SUCCESS),
+    ("r_30", TARIFF_BTN_R_30, STYLE_PRIMARY),
+    ("r_90", TARIFF_BTN_R_90, STYLE_PRIMARY),
+    ("r_365", TARIFF_BTN_R_365, STYLE_SUCCESS),
+    ("r_240", TARIFF_BTN_R_365, STYLE_SUCCESS),
     ("r_white_30", "🦾 Ускоритель игр Mobile - 299 руб", STYLE_PRIMARY),
     ("back_to_main", "🔙 Назад", None),
     ("ref_invite", "Пригласить друзей🫶", STYLE_SUCCESS),

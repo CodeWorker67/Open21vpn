@@ -25,6 +25,9 @@ MIGRATIONS = [
     ("field_bool_1", "ALTER TABLE users ADD COLUMN field_bool_1 INTEGER NOT NULL DEFAULT 0"),
     ("field_bool_2", "ALTER TABLE users ADD COLUMN field_bool_2 INTEGER NOT NULL DEFAULT 0"),
     ("field_bool_3", "ALTER TABLE users ADD COLUMN field_bool_3 INTEGER NOT NULL DEFAULT 0"),
+    ("yookassa_payment_method_id", "ALTER TABLE users ADD COLUMN yookassa_payment_method_id TEXT"),
+    ("yookassa_autorenew_cooldown_until", "ALTER TABLE users ADD COLUMN yookassa_autorenew_cooldown_until DATETIME"),
+    ("yookassa_autopay_enabled", "ALTER TABLE users ADD COLUMN yookassa_autopay_enabled INTEGER NOT NULL DEFAULT 0"),
 ]
 
 
