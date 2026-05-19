@@ -148,10 +148,11 @@ def keyboard_tariff_bonus():
 def keyboard_tariff():
     return create_kb(
         1,
-        styles={k: v for k, v in _STYLES_TARIFF.items() if k != "trial_pay"},
+        styles=_STYLES_TARIFF,
         r_30=TARIFF_BTN_R_30,
         r_90=TARIFF_BTN_R_90,
         r_365=TARIFF_BTN_R_365,
+        trial_pay="✨ Попробовать 3 дня за 1₽",
         # r_white_30="🦾 Ускоритель игр Mobile - 299 руб",
         back_to_main="🔙 Назад",
     )
