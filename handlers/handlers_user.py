@@ -313,8 +313,7 @@ async def free_vpn_legacy_cb(callback: CallbackQuery):
     """Старые клавиатуры с callback free_vpn."""
     await callback.answer()
     await callback.message.answer(
-        text='Пробный период теперь оформляется за <b>1 ₽</b> через ЮKassa (3 дня). '
-             'Выберите действие ниже.',
+        text=lexicon['free_vpn_legacy'],
         reply_markup=keyboard_start_bonus(),
         parse_mode='HTML',
         disable_web_page_preview=True,
