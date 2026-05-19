@@ -24,7 +24,7 @@ from config_bd.models import create_tables
 from lexicon import dct_desc, dct_price
 from logging_config import logger
 from payments.pay_cryptobot import create_cryptobot_payment
-from payments.pay_freekassa import pay as fk_pay
+from payments.pay_freekassa import UiKind, pay as fk_pay
 from payments.pay_stars import get_stars_amount, send_stars_subscription_invoice
 
 SUBPAGE_SOURCE = "subpage"
@@ -52,7 +52,7 @@ async def require_subpage_api_key(x_api_key: Optional[str] = Depends(api_key_hea
 
 class FkSbpPayBody(BaseModel):
     user_id: int = Field(..., description="Telegram user id")
-    duration: Literal["7", "30", "90", "180", "240", "3000"]
+    duration: Literal["7", "30", "90", "180", "240", "365", "3000"]
 
 
 class FkCardPayBody(BaseModel):
@@ -83,6 +83,15 @@ def _fk_subpage_description(duration: str) -> str:
     return f"Open 21 VPN — {duration} дней (подписная страница)"
 
 
+def _subpage_rub_for_user(user_id: int, rub: int, *, ui_kind: UiKind | None = None) -> int:
+    """Тестовые суммы для ADMIN_IDS — как в pay_freekassa / pay_cryptobot / pay_wata в боте."""
+    if user_id not in ADMIN_IDS:
+        return rub
+    if ui_kind == "sbp":
+        return 10
+    return 1
+
+
 @asynccontextmanager
 async def _lifespan(_: FastAPI):
     await create_tables()
@@ -101,6 +110,7 @@ async def sub_page_pay_fk_sbp(body: FkSbpPayBody) -> PayUrlResponse:
     rub = FK_SBP_SUBPAGE_PRICE_RUB.get(body.duration)
     if rub is None:
         raise HTTPException(status_code=400, detail="Unknown SBP duration")
+    rub = _subpage_rub_for_user(body.user_id, rub, ui_kind="sbp")
     uid = str(body.user_id)
     desc = _fk_subpage_description(body.duration)
     info = await fk_pay(
@@ -120,7 +130,7 @@ async def sub_page_pay_fk_sbp(body: FkSbpPayBody) -> PayUrlResponse:
 
 @router.post("/fk_card", response_model=PayUrlResponse)
 async def sub_page_pay_fk_card(body: FkCardPayBody) -> PayUrlResponse:
-    rub = dct_price[body.duration]
+    rub = _subpage_rub_for_user(body.user_id, dct_price[body.duration], ui_kind="card")
     uid = str(body.user_id)
     desc = dct_desc[body.duration]
     info = await fk_pay(
@@ -162,7 +172,7 @@ async def sub_page_pay_stars(body: StarsPayBody) -> PayUrlResponse:
 
 @router.post("/cryptobot", response_model=PayUrlResponse)
 async def sub_page_pay_cryptobot(body: CryptobotPayBody) -> PayUrlResponse:
-    rub = dct_price[body.duration]
+    rub = _subpage_rub_for_user(body.user_id, dct_price[body.duration])
     desc = dct_desc[body.duration]
     result = await create_cryptobot_payment(
         rub_amount=rub,
