@@ -59,13 +59,13 @@ async def send_push_cron(debug: bool = False):
                                     'trial_pay': STYLE_SUCCESS,
                                     'video_faq': STYLE_PRIMARY,
                                 },
-                                trial_pay='✨ 3 дня за 1₽',
+                                trial_pay='✨ Попробовать 3 дня за 1₽',
                                 video_faq='🎥 Видеоинструкция',
                             )
                             keyboard_broadcast_video = create_kb(
                                 1,
                                 styles={'trial_pay': STYLE_SUCCESS},
-                                trial_pay='✨ 3 дня за 1₽',
+                                trial_pay='✨ Попробовать 3 дня за 1₽',
                             )
                             if video_flag:
                                 await bot.send_video(
@@ -104,13 +104,13 @@ async def send_push_cron(debug: bool = False):
                                     'connect_vpn': STYLE_PRIMARY,
                                     'video_faq': STYLE_PRIMARY,
                                 },
-                                connect_vpn='🔗 Подключить SpeedGamer',
+                                connect_vpn='🔗 Подключить',
                                 video_faq='🎥 Видеоинструкция',
                             )
                             keyboard_broadcast_video = create_kb(
                                 1,
                                 styles={'connect_vpn': STYLE_PRIMARY},
-                                connect_vpn='🔗 Подключить SpeedGamer',
+                                connect_vpn='🔗 Подключить',
                             )
                             if video_flag:
                                 await bot.send_video(

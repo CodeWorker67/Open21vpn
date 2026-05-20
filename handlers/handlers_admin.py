@@ -334,8 +334,8 @@ async def sync_panel(message: Message):
     if CHECKER_ID is not None:
         await bot.send_message(CHECKER_ID,
                                'Добрый день. Мы создали Вам личный кабинет и начислили 5 дней пробного '
-                               'доступа.\nПерейдите по ссылке, нажав на кнопку 🔗 Подключить SpeedGamer',
-                               reply_markup=create_kb(1, connect_vpn='🔗 Подключить SpeedGamer'))
+                               'доступа.\nПерейдите по ссылке, нажав на кнопку 🔗 Подключить',
+                               reply_markup=create_kb(1, connect_vpn='🔗 Подключить'))
 
     for user_id in users_for_sync:
         # Проверяем, есть ли пользователь в панели
@@ -362,8 +362,8 @@ async def sync_panel(message: Message):
                 logger.info(f"Добавлен в панель пользователь {user_id} (day=0)")
                 await bot.send_message(user_id,
                                        'Добрый день. Мы создали Вам личный кабинет и начислили 5 дней пробного '
-                                       'доступа.\nПерейдите по ссылке, нажав на кнопку 🔗 Подключить SpeedGamer',
-                                       reply_markup=create_kb(1, connect_vpn='🔗 Подключить SpeedGamer'))
+                                       'доступа.\nПерейдите по ссылке, нажав на кнопку 🔗 Подключить',
+                                       reply_markup=create_kb(1, connect_vpn='🔗 Подключить'))
             else:
                 not_found += 1
                 logger.warning(f"Не удалось добавить в панель пользователя {user_id}")

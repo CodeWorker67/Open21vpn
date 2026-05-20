@@ -16,7 +16,7 @@ from aiogram.utils.keyboard import InlineKeyboardBuilder
 
 from bot import sql
 from botapi_sender import send_message
-from config import ADMIN_IDS, BOT_URL, CHECKER_ID
+from config import ADMIN_IDS, BOT_URL, CHECKER_ID, SUPPORT_URL
 from keyboard import (
     BTN_BACK,
     STYLE_DANGER,
@@ -633,21 +633,21 @@ async def admin_broadcast(message: Message):
     success = 0
     blocked_updated = 0
     other_errors = 0
-    text = """
+    text = f"""
 🔥<b> Хорошие новости: Happ работает стабильно!</b>
 
-Если у вас бывают обрывы связи — не терпите. Просто смените приложение на <b>Happ</b> или сразу напишите нам в <a href="https://t.me/suppzoomvpn">Поддержку</a>. Мы всё починим 🤝
+Если у вас бывают обрывы связи — не терпите. Просто смените приложение на <b>Happ</b> или сразу напишите нам в <a href="{SUPPORT_URL}">Поддержку</a>. Мы всё починим 🤝
 
 📱 <b>Пользуетесь и всё нравится?</b>
 Не жадничайте, скиньте этот пост контактам, у которых вечно нет нормального VPN. Сделайте им подарок 😉
         """
     button_text = "Пригласить друзей🫶"
     if CHECKER_ID is not None:
-        url = f"https://t.me/share/url?url=https://t.me/zoomerskyvpn_bot?start=ref{CHECKER_ID}&text={urllib.parse.quote('Держи надежный VPN, там еще и большой пробный период!')}"
+        url = _ref_invite_url(CHECKER_ID)
         send_message(chat_id=CHECKER_ID, text=text, button_text=button_text, url=url)
     for user_id in users:
         try:
-            url = f"https://t.me/share/url?url=https://t.me/zoomerskyvpn_bot?start=ref{user_id}&text={urllib.parse.quote('Держи надежный VPN, там еще и большой пробный период!')}"
+            url = _ref_invite_url(user_id)
             response = send_message(chat_id=user_id, text=text, button_text=button_text, url=url)
 
             if not response.get("ok") and response.get("error_code") == 403:
