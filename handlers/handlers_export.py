@@ -1,12 +1,13 @@
 import asyncio
 import os
 import tempfile
-from datetime import datetime
-from typing import Any, Dict, List
+from datetime import date, datetime
+from typing import Any, Dict, List, Sequence, Tuple
 
 import openpyxl
 from aiogram import Router
 from openpyxl.styles import Alignment, Border, Side
+from sqlalchemy import inspect as sa_inspect
 
 from bot import sql, x3
 from config import ADMIN_IDS
@@ -15,6 +16,144 @@ from aiogram.types import Message, FSInputFile
 from aiogram.filters import Command
 
 router = Router()
+
+_HEADER_ALIGNMENT = Alignment(horizontal="center", vertical="center")
+_THIN_BORDER = Border(
+    left=Side(style='thin'), right=Side(style='thin'),
+    top=Side(style='thin'), bottom=Side(style='thin'),
+)
+
+_FULL_EXPORT_SHEETS: Tuple[Tuple[str, str], ...] = (
+    ("users", "users"),
+    ("payments", "payments_sbp"),
+    ("payments_fk_sbp", "payments_fk_sbp"),
+    ("payments_youkassa", "payments_youkassa"),
+    ("payments_cards", "payments_cards"),
+    ("payments_stars", "payments_stars"),
+    ("payments_platega_crypto", "payments_platega_crypto"),
+    ("payments_wata_sbp", "payments_wata_sbp"),
+    ("payments_wata_card", "payments_wata_card"),
+    ("payments_cryptobot", "payments_cryptobot"),
+    ("gifts", "gifts"),
+    ("online", "online"),
+    ("white_counter", "white_counter"),
+)
+
+
+def _format_export_cell_value(value: Any) -> Any:
+    if isinstance(value, datetime):
+        return value.strftime('%Y-%m-%d %H:%M:%S')
+    if isinstance(value, date):
+        return value.strftime('%Y-%m-%d')
+    return value
+
+
+def _model_column_names(row: Any) -> List[str]:
+    return [col.key for col in sa_inspect(row.__class__).mapper.column_attrs]
+
+
+def _autosize_worksheet_columns(ws) -> None:
+    for col in ws.columns:
+        max_len = 0
+        col_letter = col[0].column_letter
+        for cell in col:
+            if cell.value:
+                max_len = max(max_len, len(str(cell.value)))
+        ws.column_dimensions[col_letter].width = min(max_len + 2, 50)
+
+
+def _write_sheet_from_rows(ws, rows: Sequence[Any]) -> None:
+    if not rows:
+        return
+    columns = _model_column_names(rows[0])
+    for col_num, title in enumerate(columns, 1):
+        cell = ws.cell(row=1, column=col_num, value=title)
+        cell.alignment = _HEADER_ALIGNMENT
+        cell.border = _THIN_BORDER
+    for row_num, row in enumerate(rows, 2):
+        for col_num, col_name in enumerate(columns, 1):
+            value = _format_export_cell_value(getattr(row, col_name, None))
+            cell = ws.cell(row=row_num, column=col_num, value=value)
+            cell.border = _THIN_BORDER
+    _autosize_worksheet_columns(ws)
+    ws.freeze_panes = ws['A2']
+
+
+def _sync_build_full_export_from_snapshot(snapshot: Dict[str, List[Any]]) -> str:
+    wb = openpyxl.Workbook()
+    if 'Sheet' in wb.sheetnames:
+        wb.remove(wb['Sheet'])
+
+    for snapshot_key, sheet_title in _FULL_EXPORT_SHEETS:
+        rows = snapshot.get(snapshot_key) or []
+        ws = wb.create_sheet(title=sheet_title)
+        _write_sheet_from_rows(ws, rows)
+
+    fd, path = tempfile.mkstemp(suffix=".xlsx")
+    os.close(fd)
+    wb.save(path)
+    return path
+
+
+def _build_export_caption(snapshot: Dict[str, List[Any]], *, full: bool = False) -> str:
+    payments_list = snapshot["payments"]
+    payments_cards_list = snapshot["payments_cards"]
+    payments_platega_crypto_list = snapshot["payments_platega_crypto"]
+    payments_wata_sbp_list = snapshot["payments_wata_sbp"]
+    payments_wata_card_list = snapshot["payments_wata_card"]
+    payments_fk_sbp_list = snapshot["payments_fk_sbp"]
+    payments_youkassa_list = snapshot["payments_youkassa"]
+
+    now_s = datetime.now().strftime('%d.%m.%Y %H:%M')
+    title = "📊 Полный экспорт базы данных" if full else "📊 Экспорт базы данных"
+    caption = (
+        f"{title}\n"
+        f"📅 Создано: {now_s}\n\n"
+        f"📊 Статистика:\n"
+        f"├ 👥 Пользователей: {len(snapshot['users'])}\n"
+        f"├ 🎁 Подарков: {len(snapshot['gifts'])}\n"
+        f"├ 💰 Платежей Platega СБП: "
+        f"{sum(1 for p in payments_list if p.status == 'confirmed')}/{len(payments_list)}\n"
+        f"├ 💳 Платежей по картам: "
+        f"{sum(1 for p in payments_cards_list if p.status == 'confirmed')}/{len(payments_cards_list)}\n"
+        f"├ ⭐ Платежей Stars: {len(snapshot['payments_stars'])}\n"
+        f"├ 💎 Платежей Platega Crypto: "
+        f"{sum(1 for p in payments_platega_crypto_list if p.status == 'confirmed')}/{len(payments_platega_crypto_list)}\n"
+        f"├ 💳 Платежей FreeKassa: "
+        f"{sum(1 for p in payments_fk_sbp_list if p.status == 'confirmed')}/{len(payments_fk_sbp_list)}\n"
+        f"├ 💳 Платежей ЮKassa: "
+        f"{sum(1 for p in payments_youkassa_list if p.status == 'confirmed')}/{len(payments_youkassa_list)}\n"
+        f"├ ⚡ Платежей WATA СБП: "
+        f"{sum(1 for p in payments_wata_sbp_list if p.status == 'confirmed')}/{len(payments_wata_sbp_list)}\n"
+        f"└ 💳 Платежей WATA Карта: "
+        f"{sum(1 for p in payments_wata_card_list if p.status == 'confirmed')}/{len(payments_wata_card_list)}\n"
+    )
+    if full:
+        caption += "\n📋 Все столбцы таблиц users и платежей."
+    return caption
+
+
+async def _send_export_file(
+    message: Message,
+    snapshot: Dict[str, List[Any]],
+    *,
+    full: bool,
+    log_action: str,
+) -> None:
+    build_fn = _sync_build_full_export_from_snapshot if full else _sync_build_export_from_snapshot
+    export_path = await asyncio.to_thread(build_fn, snapshot)
+    caption = _build_export_caption(snapshot, full=full)
+    try:
+        await message.answer_document(
+            document=FSInputFile(export_path),
+            caption=caption,
+        )
+    finally:
+        try:
+            os.remove(export_path)
+        except OSError:
+            pass
+    logger.info(f"Администратор {message.from_user.id} {log_action}")
 
 
 def _sync_build_export_from_snapshot(snapshot: Dict[str, List[Any]]) -> str:
@@ -435,71 +574,38 @@ async def export_database_to_excel(message: Message):
 
     try:
         await message.answer("🔄 Начинаю экспорт базы данных...")
-
         snapshot = await sql.get_export_snapshot()
-        export_path = await asyncio.to_thread(_sync_build_export_from_snapshot, snapshot)
-
-        users_list = snapshot["users"]
-        gifts_list = snapshot["gifts"]
-        payments_list = snapshot["payments"]
-        payments_cards_list = snapshot["payments_cards"]
-        payments_stars_list = snapshot["payments_stars"]
-        payments_platega_crypto_list = snapshot["payments_platega_crypto"]
-        payments_wata_sbp_list = snapshot["payments_wata_sbp"]
-        payments_wata_card_list = snapshot["payments_wata_card"]
-        payments_fk_sbp_list = snapshot["payments_fk_sbp"]
-        payments_youkassa_list = snapshot["payments_youkassa"]
-
-        users_count = len(users_list)
-        gifts_count = len(gifts_list)
-        payments_count = len(payments_list)
-        payments_cards_count = len(payments_cards_list)
-        payments_stars_count = len(payments_stars_list)
-        payments_platega_crypto_count = len(payments_platega_crypto_list)
-        payments_wata_sbp_count = len(payments_wata_sbp_list)
-        payments_wata_card_count = len(payments_wata_card_list)
-        payments_fk_sbp_count = len(payments_fk_sbp_list)
-        payments_youkassa_count = len(payments_youkassa_list)
-
-        successful_payments_count = sum(1 for p in payments_list if p.status == 'confirmed')
-        successful_cards_count = sum(1 for p in payments_cards_list if p.status == 'confirmed')
-        successful_platega_crypto_count = sum(1 for p in payments_platega_crypto_list if p.status == 'confirmed')
-        successful_wata_sbp_count = sum(1 for p in payments_wata_sbp_list if p.status == 'confirmed')
-        successful_wata_card_count = sum(1 for p in payments_wata_card_list if p.status == 'confirmed')
-        successful_fk_sbp_count = sum(1 for p in payments_fk_sbp_list if p.status == 'confirmed')
-        successful_youkassa_count = sum(1 for p in payments_youkassa_list if p.status == 'confirmed')
-
-        now_s = datetime.now().strftime('%d.%m.%Y %H:%M')
-        caption = (
-            f"📊 Экспорт базы данных\n"
-            f"📅 Создано: {now_s}\n\n"
-            f"📊 Статистика:\n"
-            f"├ 👥 Пользователей: {users_count}\n"
-            f"├ 🎁 Подарков: {gifts_count}\n"
-            f"├ 💰 Платежей Platega СБП: {successful_payments_count}/{payments_count}\n"
-            f"├ 💳 Платежей по картам: {successful_cards_count}/{payments_cards_count}\n"
-            f"├ ⭐ Платежей Stars: {payments_stars_count}\n"
-            f"├ 💎 Платежей Platega Crypto: {successful_platega_crypto_count}/{payments_platega_crypto_count}\n"
-            f"├ 💳 Платежей FreeKassa: {successful_fk_sbp_count}/{payments_fk_sbp_count}\n"
-            f"├ 💳 Платежей ЮKassa: {successful_youkassa_count}/{payments_youkassa_count}\n"
-            f"├ ⚡ Платежей WATA СБП: {successful_wata_sbp_count}/{payments_wata_sbp_count}\n"
-            f"└ 💳 Платежей WATA Карта: {successful_wata_card_count}/{payments_wata_card_count}\n"
+        await _send_export_file(
+            message,
+            snapshot,
+            full=False,
+            log_action="экспортировал базу данных в Excel",
         )
-        try:
-            await message.answer_document(
-                document=FSInputFile(export_path),
-                caption=caption,
-            )
-        finally:
-            try:
-                os.remove(export_path)
-            except OSError:
-                pass
-
-        logger.info(f"Администратор {message.from_user.id} экспортировал базу данных в Excel")
-
     except Exception as e:
         error_message = f"❌ Ошибка при экспорте базы данных: {str(e)}"
+        logger.error(error_message)
+        logger.exception("Детали ошибки:")
+        await message.answer(error_message)
+
+
+@router.message(Command(commands=['export_full']))
+async def export_full_database_to_excel(message: Message):
+    """Полный экспорт: все столбцы users и остальных таблиц."""
+    if message.from_user.id not in ADMIN_IDS:
+        await message.answer("❌ Эта команда доступна только администраторам.")
+        return
+
+    try:
+        await message.answer("🔄 Начинаю полный экспорт базы данных...")
+        snapshot = await sql.get_export_snapshot()
+        await _send_export_file(
+            message,
+            snapshot,
+            full=True,
+            log_action="экспортировал полную базу данных в Excel",
+        )
+    except Exception as e:
+        error_message = f"❌ Ошибка при полном экспорте базы данных: {str(e)}"
         logger.error(error_message)
         logger.exception("Детали ошибки:")
         await message.answer(error_message)
