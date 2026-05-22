@@ -44,6 +44,10 @@ class Users(Base):
     yookassa_payment_method_id = Column(String(255), nullable=True)
     yookassa_autorenew_cooldown_until = Column(DateTime, nullable=True)
     yookassa_autopay_enabled = Column(Boolean, default=False)
+    partner = Column(String(100), nullable=True)
+    partner_balance = Column(Integer, default=0)
+    partner_pay = Column(Integer, default=0)
+    partner_flag = Column(Boolean, default=False)
 
 
 class Gifts(Base):

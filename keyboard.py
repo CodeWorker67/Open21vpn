@@ -90,24 +90,40 @@ def chanel_keyboard():
     return keyboard
 
 
+def _append_partner_earn_row(markup: InlineKeyboardMarkup) -> InlineKeyboardMarkup:
+    rows = list(markup.inline_keyboard)
+    rows.append(
+        [
+            InlineKeyboardButton(
+                text="💸 Зарабатывай с нами",
+                callback_data="partner_earn",
+                style=STYLE_SUCCESS,
+            )
+        ]
+    )
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
 def keyboard_start_bonus():
-    return create_kb(
+    markup = create_kb(
         1,
         styles={"trial_pay": STYLE_SUCCESS, "buy_vpn": STYLE_PRIMARY},
         trial_pay="✨ Попробовать 3 дня за 1₽",
         buy_vpn="🛒 Купить от 150₽ в месяц",
     )
+    return _append_partner_earn_row(markup)
 
 
 def keyboard_start():
-    return create_kb(
+    markup = create_kb(
         1,
         my_account="👤 Мой аккаунт",
         buy_vpn="🛒 Купить подписку",
         connect_vpn="🔗 Подключить Open 21 VPN",
-        ref="👥 Рефералка",
+        ref="👥 Бесплатный VPN за приглашения",
         buy_gift="🎁 Подарить подписку",
     )
+    return _append_partner_earn_row(markup)
 
 
 def keyboard_my_account(*, autopay_on: bool) -> InlineKeyboardMarkup:
@@ -529,3 +545,46 @@ def keyboard_inline_ref(user_id):
             ]
         ]
     )
+
+
+def keyboard_partner_intro():
+    return create_kb(
+        1,
+        styles={
+            "partner_create_link": STYLE_SUCCESS,
+            "back_to_main": STYLE_PRIMARY,
+        },
+        partner_create_link='🔗 Создать партнёрскую ссылку',
+        back_to_main=BTN_BACK,
+    )
+
+
+def keyboard_partner_dashboard():
+    return create_kb(
+        1,
+        styles={
+            "partner_withdraw": STYLE_SUCCESS,
+            "back_to_main": STYLE_PRIMARY,
+        },
+        partner_withdraw='💰 Создать заявку на вывод',
+        back_to_main=BTN_BACK,
+    )
+
+
+def keyboard_partner_withdraw(support_url: str):
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [
+            InlineKeyboardButton(
+                text="💬 Вывести деньги",
+                url=support_url,
+                style=STYLE_SUCCESS,
+            )
+        ],
+        [
+            InlineKeyboardButton(
+                text="🔙 Назад",
+                callback_data="partner_earn",
+                style=STYLE_PRIMARY,
+            )
+        ],
+    ])

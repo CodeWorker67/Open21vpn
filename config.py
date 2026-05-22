@@ -62,3 +62,10 @@ YOUKASSA_RECEIPT_EMAIL: str = (os.environ.get("YOUKASSA_RECEIPT_EMAIL") or "rece
 YOUKASSA_VAT_CODE: int = int((os.environ.get("YOUKASSA_VAT_CODE") or "1").strip())
 _ts = (os.environ.get("YOUKASSA_TAX_SYSTEM_CODE") or "").strip()
 YOUKASSA_TAX_SYSTEM_CODE: Optional[int] = int(_ts) if _ts.isdigit() else None
+
+# Партнёрская программа («Зарабатывай с нами»)
+PARTNER_PROCENT: int = int(os.environ.get("PARTNER_PROCENT", "20"))
+PARTNER_MIN: int = int(os.environ.get("PARTNER_MIN", "500"))
+PARTNER_SUPPORT_URL: str = (
+    os.environ.get("PARTNER_SUPPORT_URL") or os.environ.get("SUPPORT_URL") or ""
+).strip()
