@@ -31,6 +31,9 @@ _TRACKED_PAYMENT_METHODS = frozenset(
         "fksbp",
         "fk_sbp",
         "fk_card",
+        "yookassa",
+        "yookassa_sbp",
+        "yookassa_card",
     }
 )
 
