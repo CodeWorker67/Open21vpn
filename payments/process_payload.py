@@ -9,7 +9,7 @@ from lead_tracker import post_payment_success, post_user_trial
 from lexicon import TRIAL_TARIFF_PAYMENT_RUB, lexicon
 from logging_config import logger
 
-_USER_TUPLE_PARTNER = 30
+_USER_TUPLE_PARTNER = 32
 
 
 def _payment_rub_for_partner(method: str, amount: int | float) -> int:

@@ -5,7 +5,7 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 import uvicorn
 
 from bot import bot
-from config import SUB_PAGE_API_KEY, WEB_API_PORT
+from config import SUB_PAGE_API_KEY, WEB_API_PORT, JWT_SECRET
 from config_bd.models import create_tables
 from web_api import app as subpage_app
 from payments import pay_stars, pay_cryptobot, pay_platega, pay_freekassa, pay_youkassa
@@ -69,7 +69,7 @@ async def main() -> None:
 
     api_task: asyncio.Task | None = None
     api_server: uvicorn.Server | None = None
-    if SUB_PAGE_API_KEY:
+    if SUB_PAGE_API_KEY or JWT_SECRET:
         uvicorn_config = uvicorn.Config(
             subpage_app,
             host="0.0.0.0",
@@ -78,9 +78,9 @@ async def main() -> None:
         )
         api_server = uvicorn.Server(uvicorn_config)
         api_task = asyncio.create_task(api_server.serve())
-        logger.info(f"Subpage API: http://0.0.0.0:{WEB_API_PORT}/api/v1/sub_page/pay/...")
+        logger.info(f"Web API: http://0.0.0.0:{WEB_API_PORT}/api/...")
     else:
-        logger.info("SUB_PAGE_API_KEY не задан — HTTP API подписной страницы не запускается.")
+        logger.info("SUB_PAGE_API_KEY и JWT_SECRET не заданы — HTTP API не запускается.")
 
     try:
         # Пропуск накопившихся апдейтов и запуск polling

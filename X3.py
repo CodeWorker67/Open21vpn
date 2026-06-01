@@ -22,6 +22,14 @@ import string
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 
+def panel_username_for_site_user(db_user_id: int, is_white: bool) -> str:
+    n = int(db_user_id)
+    base = str(n)
+    if len(base) < 3:
+        base = f"n{n}"
+    return f"{base}_white" if is_white else base
+
+
 class X3:
     def __init__(self):
         """Инициализация класса с настройками подключения"""
@@ -334,6 +342,32 @@ class X3:
         except Exception as e:
             logger.error(f"Ошибка получения пользователя {username}: {e}")
             return None
+
+    async def delete_panel_user_by_username(self, username: str) -> bool:
+        try:
+            user_response = await self.get_user_by_username(username)
+            if not user_response or 'response' not in user_response or not user_response['response']:
+                return True
+            raw = user_response['response']
+            user = raw[0] if isinstance(raw, list) else raw
+            if not user or 'uuid' not in user:
+                return True
+            uuid_user = user['uuid']
+            session = await self._get_session()
+            async with session.delete(
+                    f"{self.target_url}/api/users/{uuid_user}",
+                    params=self.params,
+                    timeout=aiohttp.ClientTimeout(total=15)
+            ) as response:
+                if response.status in (200, 204, 404):
+                    logger.info(f"Панель: удалён пользователь {username} (uuid={uuid_user})")
+                    return True
+                error_text = await response.text() if response.content else "No body"
+                logger.warning(f"Удаление {username} из панели: HTTP {response.status} {error_text}")
+                return False
+        except Exception as e:
+            logger.warning(f"delete_panel_user_by_username {username}: {e}")
+            return False
 
     async def get_user_by_telegram_id(self, telegram_id):
         try:

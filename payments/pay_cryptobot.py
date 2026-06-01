@@ -8,6 +8,7 @@ from config import CRYPTOBOT_API_TOKEN, ADMIN_IDS, BOT_URL
 from keyboard import create_kb, STYLE_PRIMARY
 from lexicon import lexicon, dct_desc, dct_price
 from logging_config import logger
+from payments.payment_limits import payment_creation_allowed
 
 router: Router = Router()
 
@@ -93,11 +94,14 @@ async def create_cryptobot_payment(
     white: bool,
     is_gift: bool,
     source: Optional[str] = None,
+    telegram_username: Optional[str] = None,
 ) -> Dict:
     """
     Создание платежа через Cryptobot с суммой в рублях.
     Пользователь сам выбирает криптовалюту внутри Cryptobot.
     """
+    if not await payment_creation_allowed(int(user_id), telegram_username):
+        return {"status": "rate_limited", "url": "", "invoice_id": ""}
     cryptobot = CryptoBotPayment(CRYPTOBOT_API_TOKEN)
 
     payload = (

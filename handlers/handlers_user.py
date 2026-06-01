@@ -1,26 +1,71 @@
 import time
+import urllib.parse
 import requests
-from datetime import datetime
+from datetime import datetime, timezone
 
 from bot import sql, x3, bot
-from config import CHANEL_ID, BOT_URL, PARTNER_PROCENT, PARTNER_MIN, PARTNER_SUPPORT_URL
-from lead_tracker import post_user_registered, tracker_source_from_ref_and_stamp
+from config import CHANEL_ID, BOT_URL, PARTNER_PROCENT, PARTNER_MIN, PARTNER_SUPPORT_URL, PUBLIC_SITE_URL
+from lead_tracker import post_user_registered, post_user_trial, tracker_source_from_ref_and_stamp
 from keyboard import (create_kb, keyboard_start, keyboard_start_bonus, keyboard_tariff_bonus, keyboard_tariff,
                       keyboard_subscription, ref_keyboard, keyboard_gift_tariff,
                       keyboard_payment_method, keyboard_payment_method_trial, chanel_keyboard, keyboard_inline_ref,
                       keyboard_my_account, keyboard_partner_intro, keyboard_partner_dashboard,
-                      keyboard_partner_withdraw)
+                      keyboard_partner_withdraw, STYLE_PRIMARY, OPEN_SITE_CB, SITE_URL)
+from web_api import create_bot_site_login_token
 from logging_config import logger
 import asyncio
 from aiogram import Router, F
 from aiogram.exceptions import TelegramBadRequest
 from aiogram.types import Message, CallbackQuery, ChatMemberUpdated, InlineQuery, InlineQueryResultArticle, \
-    InputTextMessageContent
+    InputTextMessageContent, InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram.filters import ChatMemberUpdatedFilter, KICKED, MEMBER, Command
 from lexicon import lexicon
 
 
 router: Router = Router()
+
+_TRIAL_RETURN_GET_CB = "trial_return_get"
+_USER_TUPLE_SUBSCRIPTION_END_DATE = 9
+_USER_TUPLE_FIELD_BOOL_3 = 26
+
+
+def _user_has_active_pro_subscription(user_data: tuple) -> bool:
+    sub_end = user_data[_USER_TUPLE_SUBSCRIPTION_END_DATE]
+    if sub_end is None:
+        return False
+    if sub_end.tzinfo is None:
+        aware = sub_end.replace(tzinfo=timezone.utc)
+    else:
+        aware = sub_end.astimezone(timezone.utc)
+    return aware.date() >= datetime.now(timezone.utc).date()
+
+
+async def _panel_regular_subscription_is_active(uid: int) -> bool:
+    existing = await x3.get_user_by_username(str(uid))
+    if not existing or not existing.get("response"):
+        return False
+    user = existing["response"]
+    if isinstance(user, list):
+        user = user[0]
+    expire_at_str = user.get("expireAt")
+    if not expire_at_str:
+        return False
+    expire_at = datetime.fromisoformat(expire_at_str.replace("Z", "+00:00"))
+    now = datetime.now(timezone.utc)
+    return user.get("status") == "ACTIVE" and expire_at > now
+
+
+def _site_base_url() -> str:
+    return (PUBLIC_SITE_URL or SITE_URL).rstrip("/")
+
+
+def _site_login_url(telegram_user_id: int, first_name: str, username: str | None) -> str:
+    token = create_bot_site_login_token(
+        telegram_user_id=telegram_user_id,
+        first_name=first_name,
+        username=username,
+    )
+    return f"{_site_base_url()}/auth/bot?token={urllib.parse.quote(token, safe='')}"
 
 
 def _my_account_text_html(subscription_end_date, *, autopay_on: bool) -> str:
@@ -99,6 +144,39 @@ async def process_start_command(message: Message, command: Command):
             in_panel = await activate_gift(message, gift_id)
             await asyncio.sleep(2)
             existing = True
+
+        elif start_arg.startswith('auth_'):
+            auth_token = start_arg.replace('auth_', '', 1)
+            from web_api import confirm_tg_auth_token
+            ok = confirm_tg_auth_token(
+                auth_token,
+                message.from_user.id,
+                first_name=message.from_user.first_name or "",
+                username=message.from_user.username,
+            )
+            if ok:
+                logger.info(f'Юзер {message.from_user.id} авторизован на сайте через deeplink')
+                dashboard_url = f"{PUBLIC_SITE_URL}/dashboard" if PUBLIC_SITE_URL else ""
+                if dashboard_url:
+                    kb = InlineKeyboardMarkup(
+                        inline_keyboard=[
+                            [
+                                InlineKeyboardButton(
+                                    text="🌐 Перейти в личный кабинет",
+                                    url=dashboard_url,
+                                )
+                            ]
+                        ]
+                    )
+                    await message.answer("✅ Вы авторизованы на сайте!", reply_markup=kb)
+                else:
+                    await message.answer("✅ Вы авторизованы на сайте! Вернитесь во вкладку с сайтом.")
+            else:
+                await message.answer("❌ Ссылка устарела. Попробуйте ещё раз на сайте.")
+            if not user_data:
+                await sql.add_user(message.from_user.id, False, False)
+            existing = True
+
         elif start_arg.startswith('ttclid_') or 'ttclid_' in start_arg:
             if user_data:
                 logger.info(f'Юзер {message.from_user.id} - {message.from_user.username} нажал старт повторно с меткой ttclid')
@@ -216,6 +294,50 @@ async def direct_connect_vpn_cb(callback: CallbackQuery):
     await callback.answer()
 
 
+@router.callback_query(F.data == _TRIAL_RETURN_GET_CB)
+async def trial_return_get_cb(callback: CallbackQuery):
+    uid = callback.from_user.id
+    user_data = await sql.get_user(uid)
+    if user_data is None:
+        await sql.add_user(uid, False, False)
+        user_data = await sql.get_user(uid)
+
+    if user_data[_USER_TUPLE_FIELD_BOOL_3]:
+        await callback.answer("Вы уже взяли свой триал!", show_alert=True)
+        return
+
+    if _user_has_active_pro_subscription(user_data) or await _panel_regular_subscription_is_active(uid):
+        await callback.answer("У вас уже есть активная подписка PRO.", show_alert=True)
+        return
+
+    await callback.answer()
+
+    user_id_str = str(uid)
+    panel_user = await x3.get_user_by_username(user_id_str)
+    if panel_user and panel_user.get("response"):
+        ok = await x3.updateClient(7, user_id_str, uid)
+    else:
+        ok = await x3.addClient(7, user_id_str, uid)
+
+    if not ok:
+        await callback.message.answer(
+            "Не удалось начислить дни. Попробуйте позже или напишите в поддержку."
+        )
+        return
+
+    await sql.update_in_panel(uid)
+    await sql.update_field_bool_3(uid, True)
+    await post_user_trial(uid)
+    await callback.message.answer(
+        "🎉 Поздравляем! Вы получили 7 триальных дней доступа к Open 21 VPN! ✨🔐",
+        reply_markup=create_kb(
+            1,
+            styles={"connect_vpn": STYLE_PRIMARY},
+            connect_vpn="🔗 Подключить VPN",
+        ),
+    )
+
+
 @router.callback_query(F.data == 'my_account')
 async def my_account_cb(callback: CallbackQuery):
     await callback.answer()
@@ -253,7 +375,7 @@ async def account_autopay_off_cb(callback: CallbackQuery):
 @router.callback_query(F.data == 'account_autopay_on')
 async def account_autopay_on_cb(callback: CallbackQuery):
     user_data = await sql.get_user(callback.from_user.id)
-    pm_id = user_data[27] if user_data and len(user_data) > 27 else None
+    pm_id = user_data[29] if user_data and len(user_data) > 29 else None
     if not pm_id:
         await callback.answer(lexicon["autopay_no_method"], show_alert=True)
         return
@@ -271,6 +393,41 @@ async def account_autopay_on_cb(callback: CallbackQuery):
     except TelegramBadRequest as e:
         if "message is not modified" not in str(e).lower():
             raise
+
+
+@router.callback_query(F.data == OPEN_SITE_CB)
+async def open_site_callback(callback: CallbackQuery):
+    """Ссылка на сайт с одноразовым токеном для авто-входа."""
+    await callback.answer()
+    u = callback.from_user
+    login_url = _site_login_url(
+        u.id,
+        u.first_name or "",
+        u.username,
+    )
+    kb = InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text="🌐 Открыть сайт",
+                    url=login_url,
+                    style=STYLE_PRIMARY,
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    text="🔙 Назад",
+                    callback_data="back_to_main",
+                )
+            ],
+        ]
+    )
+    await callback.message.answer(
+        "🌐 Нажмите кнопку ниже — откроется сайт, вход выполнится автоматически.\n"
+        "Ссылка действует 10 минут и только один раз.",
+        reply_markup=kb,
+        disable_web_page_preview=True,
+    )
 
 
 async def _trial_pay_flow(callback: CallbackQuery) -> None:

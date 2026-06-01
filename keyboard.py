@@ -13,6 +13,9 @@ STYLE_DANGER = "danger"
 
 BTN_BACK = "🔙 Назад"
 
+SITE_URL = "https://open21.top/"
+OPEN_SITE_CB = "open_site"
+
 _DEFAULT_CALLBACK_STYLES: dict[str, str] = {
     "buy_vpn": STYLE_SUCCESS,
     "free_vpn": STYLE_SUCCESS,
@@ -90,6 +93,20 @@ def chanel_keyboard():
     return keyboard
 
 
+def _append_open_site_row(markup: InlineKeyboardMarkup) -> InlineKeyboardMarkup:
+    rows = list(markup.inline_keyboard)
+    rows.append(
+        # [
+        #     InlineKeyboardButton(
+        #         text="🌐 Наш сайт",
+        #         callback_data=OPEN_SITE_CB,
+        #         style=STYLE_PRIMARY,
+        #     )
+        # ]
+    )
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
 def _append_partner_earn_row(markup: InlineKeyboardMarkup) -> InlineKeyboardMarkup:
     rows = list(markup.inline_keyboard)
     rows.append(
@@ -123,6 +140,7 @@ def keyboard_start():
         ref="👥 Бесплатный VPN за приглашения",
         buy_gift="🎁 Подарить подписку",
     )
+    markup = _append_open_site_row(markup)
     return _append_partner_earn_row(markup)
 
 

@@ -63,6 +63,17 @@ YOUKASSA_VAT_CODE: int = int((os.environ.get("YOUKASSA_VAT_CODE") or "1").strip(
 _ts = (os.environ.get("YOUKASSA_TAX_SYSTEM_CODE") or "").strip()
 YOUKASSA_TAX_SYSTEM_CODE: Optional[int] = int(_ts) if _ts.isdigit() else None
 
+# Web API (web_api.py): сайт + страница подписки + uvicorn в main
+PUBLIC_SITE_URL: str = (os.environ.get("PUBLIC_SITE_URL") or "").strip().rstrip("/")
+JWT_SECRET: Optional[str] = (os.environ.get("JWT_SECRET") or "").strip() or None
+GOOGLE_CLIENT_ID: Optional[str] = (os.environ.get("GOOGLE_CLIENT_ID") or "").strip() or None
+PAYMENT_MAX_PENDING_PER_USER: int = int((os.environ.get("PAYMENT_MAX_PENDING_PER_USER") or "8").strip())
+SMTP_HOST: Optional[str] = (os.environ.get("SMTP_HOST") or "").strip() or None
+SMTP_PORT: int = int((os.environ.get("SMTP_PORT") or "587").strip())
+SMTP_USER: Optional[str] = (os.environ.get("SMTP_USER") or "").strip() or None
+SMTP_PASSWORD: Optional[str] = (os.environ.get("SMTP_PASSWORD") or "").strip() or None
+SMTP_FROM: Optional[str] = (os.environ.get("SMTP_FROM") or "").strip() or None
+
 # Партнёрская программа («Зарабатывай с нами»)
 PARTNER_PROCENT: int = int(os.environ.get("PARTNER_PROCENT", "20"))
 PARTNER_MIN: int = int(os.environ.get("PARTNER_MIN", "500"))
