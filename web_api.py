@@ -4,7 +4,7 @@ HTTP API для сайта Open 21 VPN и страницы подписки.
 Запуск: вместе с ботом из main.py (SUB_PAGE_API_KEY или JWT_SECRET),
 либо отдельно: python web_api.py
 
-Страница подписки: заголовок X-Sub-Page-Api-Key или Bearer SUB_PAGE_API_KEY.
+Страница подписки: X-Sub-Page-Api-Key, X-API-Key (алиас) или Bearer SUB_PAGE_API_KEY.
 Сайт: JWT в Authorization или cookie open21_auth.
 """
 from __future__ import annotations
@@ -464,6 +464,16 @@ sub_page_api_key_header = APIKeyHeader(
 )
 
 
+def _sub_page_api_key_from_request(
+    request: Request,
+    x_sub_page_key: Optional[str],
+) -> Optional[str]:
+    if x_sub_page_key:
+        return x_sub_page_key.strip()
+    alias = (request.headers.get("X-API-Key") or "").strip()
+    return alias or None
+
+
 async def require_sub_page_auth(
     request: Request,
     x_sub_page_key: Optional[str] = Security(sub_page_api_key_header),
@@ -473,7 +483,8 @@ async def require_sub_page_auth(
             status.HTTP_503_SERVICE_UNAVAILABLE,
             "Не задан SUB_PAGE_API_KEY — эндпоинты страницы подписки отключены.",
         )
-    if x_sub_page_key == SUB_PAGE_API_KEY:
+    provided = _sub_page_api_key_from_request(request, x_sub_page_key)
+    if provided == SUB_PAGE_API_KEY:
         return
     bearer = (request.headers.get("Authorization") or "").strip()
     if bearer.lower().startswith("bearer "):

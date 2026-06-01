@@ -41,7 +41,7 @@ LEAD_TRACKER_BASE: Optional[str] = (os.environ.get("LEAD_TRACKER_BASE") or "").s
 LEAD_TRACKER_API_KEY: Optional[str] = (os.environ.get("LEAD_TRACKER_API_KEY") or "").strip() or None
 LEAD_TRACKER_STAR_RUB_PER_STAR: str = os.environ.get("LEAD_TRACKER_STAR_RUB_PER_STAR", "1.0")
 
-# HTTP API подписной страницы (web_api.py, старт из main). Заголовок: X-API-Key
+# HTTP API подписной страницы (web_api.py, старт из main). Заголовок: X-Sub-Page-Api-Key (или X-API-Key)
 SUB_PAGE_API_KEY: Optional[str] = (os.environ.get("SUB_PAGE_API_KEY") or "").strip() or None
 # CORS для fetch со страницы подписки (через запятую). Пусто — разрешить любой origin (*).
 _raw_cors = (os.environ.get("SUB_PAGE_CORS_ORIGINS") or "").strip()

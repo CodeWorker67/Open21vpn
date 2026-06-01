@@ -2,10 +2,10 @@
  * Замена для: remnawave/subscription-page → frontend/src/pages/main/ui/components/main.page.component.tsx
  *
  * Open 21: POST на {api}/api/v1/sub_page/pay/{fk_sbp|fk_card|stars|cryptobot}
- * с телом { user_id, duration }. Заголовок X-API-Key = SUB_PAGE_API_KEY из .env бота.
+ * с телом { user_id, duration }. Заголовок X-Sub-Page-Api-Key = SUB_PAGE_API_KEY из .env бота.
  *
  * Vite (префикс VITE_):
- *   VITE_SUB_PAGE_PAY_API_BASE — по умолчанию http://btg.open21.top
+ *   VITE_SUB_PAGE_PAY_API_BASE — по умолчанию https://btg.open21.top
  *   VITE_SUB_PAGE_PAY_API_KEY — тот же SUB_PAGE_API_KEY, что в .env бота
  *
  * В env контейнера subscription-page задайте ключ; при необходимости переопределите базовый URL.
@@ -45,7 +45,7 @@ import { useSubscription } from '@entities/subscription-info-store'
 import { LanguagePicker } from '@shared/ui/language-picker/language-picker.shared'
 import { Page, RemnawaveLogo } from '@shared/ui'
 
-const DEFAULT_SUB_PAGE_PAY_API_BASE = 'http://btg.open21.top'
+const DEFAULT_SUB_PAGE_PAY_API_BASE = 'https://btg.open21.top'
 
 function subPagePayFromBuild(): { apiBase: string; apiKey: string } {
     const rawBase = String(import.meta.env.VITE_SUB_PAGE_PAY_API_BASE ?? '').trim()
@@ -119,7 +119,7 @@ function SubscriptionPayBlock({ isMobile }: { isMobile: boolean }) {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
-                        'X-API-Key': payCfg.apiKey
+                        'X-Sub-Page-Api-Key': payCfg.apiKey
                     },
                     body: JSON.stringify({ user_id: userId, duration: pickedDuration })
                 })
