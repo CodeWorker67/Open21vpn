@@ -95,15 +95,15 @@ def chanel_keyboard():
 
 def _append_open_site_row(markup: InlineKeyboardMarkup) -> InlineKeyboardMarkup:
     rows = list(markup.inline_keyboard)
-    # rows.append(
-    #     [
-    #         InlineKeyboardButton(
-    #             text="🌐 Наш сайт",
-    #             callback_data=OPEN_SITE_CB,
-    #             style=STYLE_PRIMARY,
-    #         )
-    #     ]
-    # )
+    rows.append(
+        [
+            InlineKeyboardButton(
+                text="🌐 Наш сайт",
+                callback_data=OPEN_SITE_CB,
+                style=STYLE_PRIMARY,
+            )
+        ]
+    )
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
