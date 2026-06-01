@@ -636,7 +636,7 @@ async def reset_field_bool_3_all_command(message: Message):
 @router.message(Command(commands=['add_7_to_all']))
 async def add_7_to_all_command(message: Message):
     """
-    Рассылка пользователям без активной PRO-подписки.
+    Рассылка: нет подписки или PRO истекла ≥2 дней назад (UTC).
     Кнопка «ТРИАЛ»; +7 дней по нажатию (создание в панели или продление), field_bool_3.
     """
     if message.from_user.id not in ADMIN_IDS:
@@ -646,8 +646,8 @@ async def add_7_to_all_command(message: Message):
     n = len(user_ids)
     if not user_ids:
         await message.answer(
-            "Нет пользователей: is_delete=False, нет активной PRO-подписки "
-            "(subscription_end_date пусто или истекла по дате UTC)."
+            "Нет пользователей: is_delete=False, subscription_end_date пусто "
+            "или подписка закончилась 2+ дня назад (календарный день UTC)."
         )
         return
 
@@ -664,7 +664,7 @@ async def add_7_to_all_command(message: Message):
     )
     await message.answer(
         f"К получателям рассылки: {n} чел.\n"
-        f"(is_delete=False, нет активной PRO-подписки по subscription_end_date UTC).\n\n"
+        f"(is_delete=False, нет подписки или окончание ≥2 дней назад по UTC).\n\n"
         f"Дальше бот пришлёт вам превью текста с кнопкой «🔥Получить ТРИАЛ» и запрос подтверждения.\n"
         f"Начисление +7 дней — только по нажатию: нет в панели → создать на 7 дней, "
         f"есть, но PRO истёк → +7 дней от текущего момента.",
