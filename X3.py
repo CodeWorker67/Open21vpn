@@ -1,8 +1,11 @@
+import asyncio
 import base64
 import datetime
 import hashlib
 import hmac
 import uuid
+from pprint import pprint
+from typing import List
 
 import urllib3
 import aiohttp
@@ -96,9 +99,7 @@ class X3:
 
     async def list(self, start):
         try:
-            params = self.params
-            params['size'] = 1000
-            params['start'] = start
+            params = {**self.params, 'size': 1000, 'start': start}
             session = await self._get_session()
             async with session.get(
                     f'{self.target_url}/api/users',
@@ -515,26 +516,43 @@ class X3:
             logger.error(f"❌ Исключение при обновлении squads: {e}")
             return False
 
-    async def get_all_panel(self):
-        """
-        Возвращает список всех пользователей из панели (объекты пользователей),
-        у которых description == 'New user - without pay'.
-        """
-        lst_users = []
+    @staticmethod
+    def _panel_user_summary(user: dict) -> dict:
+        """Краткое представление пользователя панели для вывода в консоль."""
+        squads = user.get("activeInternalSquads") or []
+        squad_names = [
+            s.get("name", s.get("uuid", s)) if isinstance(s, dict) else str(s)
+            for s in squads
+        ]
+        traffic = user.get("userTraffic") or {}
+        return {
+            "username": user.get("username"),
+            "telegramId": user.get("telegramId"),
+            "status": user.get("status"),
+            "description": user.get("description"),
+            "shortUuid": user.get("shortUuid"),
+            "createdAt": user.get("createdAt"),
+            "expireAt": user.get("expireAt"),
+            "squads": squad_names,
+            "firstConnectedAt": traffic.get("firstConnectedAt"),
+            "usedTrafficBytes": traffic.get("usedTrafficBytes"),
+        }
+
+    async def get_all_panel(self) -> List[dict]:
+        """Возвращает всех пользователей из панели (полные объекты API)."""
+        users_all: List[dict] = []
         try:
-            users_all = []
-            for i in range(100):  # максимум 100 страниц
+            for i in range(100):
                 data = await self.list(1000 * i + 1)
-                if data['response']['users']:
-                    users_all.extend(data['response']['users'])
+                page = data.get("response", {}).get("users") or []
+                if page:
+                    users_all.extend(page)
                 else:
                     break
-            logger.info(f'Всего юзеров в панели - {len(users_all)}')
-            for user in users_all:
-                lst_users.append(user)
+            logger.info(f"Всего юзеров в панели — {len(users_all)}")
         except Exception as e:
-            logger.error(f"Ошибка при получении всех пользователей: {e}")
-        return lst_users
+            logger.error(f"Ошибка при получении всех пользователей панели: {e}")
+        return users_all
 
     async def set_expiration_date(self, username: str, target_date: datetime, user_id: int):
         """
@@ -606,3 +624,28 @@ class X3:
         except Exception as e:
             logger.error(f"Исключение при установке даты для {username}: {e}")
             return False, None
+
+
+async def _print_last_panel_users(limit: int = 30) -> None:
+    import sys
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(encoding="utf-8")
+
+    x3 = X3()
+    try:
+        users = await x3.get_all_panel()
+        users_sorted = sorted(
+            users,
+            key=lambda u: u.get("createdAt") or "",
+            reverse=True,
+        )
+        last_users = users_sorted[:limit]
+        summaries = [X3._panel_user_summary(u) for u in last_users]
+        print(f"\n=== Последние {len(summaries)} из {len(users)} пользователей панели ===\n")
+        pprint(summaries, width=120, sort_dicts=False)
+    finally:
+        await x3.close()
+
+
+if __name__ == "__main__":
+    asyncio.run(_print_last_panel_users())
