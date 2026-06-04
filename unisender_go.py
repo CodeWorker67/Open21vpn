@@ -68,7 +68,6 @@ async def send_transactional_email(
             "track_links": 0,
             "track_read": 0,
             "tags": ["auth"],
-            "bypass_unsubscribed": 1,
         }
     }
 
