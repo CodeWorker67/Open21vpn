@@ -1,5 +1,6 @@
 import random
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
+from typing import Optional
 
 from bot import sql, x3, bot
 from config import ADMIN_IDS, CHECKER_ID
@@ -13,8 +14,55 @@ from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKe
 from aiogram.filters import Command
 
 from sheduler.check_connect import check_connect
+from X3 import panel_username_for_site_user
 
 router = Router()
+
+_MSK = timezone(timedelta(hours=3))
+
+
+def _msk_dt_str(dt: Optional[datetime]) -> str:
+    if dt is None:
+        return "Нет"
+    if dt.tzinfo is None:
+        aware = dt.replace(tzinfo=timezone.utc)
+    else:
+        aware = dt.astimezone(timezone.utc)
+    return aware.astimezone(_MSK).strftime("%d-%m-%Y %H:%M МСК")
+
+
+def _panel_sub_line(activ_result: dict) -> str:
+    t = activ_result.get("time", "-")
+    if t in (None, "", "-"):
+        return "Нет"
+    return str(t)
+
+
+def _panel_usernames_from_row(row: tuple) -> tuple[str, str]:
+    """Пара username в панели: обычная, вайт (как в web_api._panel_vpn_usernames)."""
+    tg_col = row[1]
+    linked = row[28]
+    tg = None
+    if tg_col is not None and int(tg_col) > 0:
+        tg = int(tg_col)
+    elif linked is not None and int(linked) > 0:
+        tg = int(linked)
+    if tg is not None:
+        s = str(tg)
+        return s, f"{s}_white"
+    db_uid = int(tg_col)
+    return panel_username_for_site_user(db_uid, False), panel_username_for_site_user(db_uid, True)
+
+
+def _split_long_text(text: str, limit: int = 3800) -> list[str]:
+    if len(text) <= limit:
+        return [text]
+    parts: list[str] = []
+    rest = text
+    while rest:
+        parts.append(rest[:limit])
+        rest = rest[limit:]
+    return parts
 
 _ADD7ALL_PREVIEW_CB = "add7all_preview"
 _ADD7ALL_YES_CB = "add7all_yes"
@@ -89,6 +137,63 @@ async def user_info(message: Message):
         await message.answer(text)
     except Exception as e:
         await message.answer(f'Ошибка при формировании сообщения: {str(e)}')
+
+
+@router.message(Command(commands=['pay']))
+async def pay_info_command(message: Message):
+    """Сводка подписок (БД / панель) и успешные платежи пользователя."""
+    if message.from_user.id not in ADMIN_IDS:
+        return
+
+    args = (message.text or "").split()
+    if len(args) < 2:
+        await message.answer("❌ Использование: /pay <telegram_id>\nНапример: /pay 123456789")
+        return
+
+    try:
+        target_id = int(args[1].strip())
+    except ValueError:
+        await message.answer("❌ ID должен быть числом.")
+        return
+
+    user_row = await sql.get_user(target_id)
+    if not user_row:
+        await message.answer(f"❌ Пользователь {target_id} не найден в базе данных.")
+        return
+
+    reg_un, _ = _panel_usernames_from_row(user_row)
+    sub_db = user_row[9]
+
+    try:
+        ar_reg = await x3.activ(reg_un)
+    except Exception as e:
+        logger.exception("/pay: панель")
+        await message.answer(f"❌ Ошибка запроса к панели: {e}")
+        return
+
+    pay_rows = await sql.get_user_subscription_payment_report(target_id)
+    pay_lines: list[str] = []
+    for tc, kind, days_s in pay_rows:
+        if tc.tzinfo is None:
+            tc_aware = tc.replace(tzinfo=timezone.utc)
+        else:
+            tc_aware = tc.astimezone(timezone.utc)
+        ts = tc_aware.astimezone(_MSK).strftime("%d-%m-%Y %H:%M МСК")
+        pay_lines.append(f"• {ts} — {kind} — {days_s} дн.")
+
+    body = (
+        f"<b>/pay {target_id}</b>\n\n"
+        f"Подписка в БД бота — {_msk_dt_str(sub_db)}\n"
+        f"Подписка в панели — {_panel_sub_line(ar_reg)}\n\n"
+        f"<b>Платежи:</b>\n"
+    )
+    if pay_lines:
+        body += "\n".join(pay_lines)
+    else:
+        body += "Нет"
+
+    for chunk in _split_long_text(body):
+        await message.answer(chunk)
 
 
 @router.message(Command(commands=['sub']))
