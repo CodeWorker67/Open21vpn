@@ -5,7 +5,7 @@ from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
 from config import CHANEL_URL, BOT_URL
-from lexicon import TARIFF_BTN_R_30, TARIFF_BTN_R_90, TARIFF_BTN_R_365
+from lexicon import dct_desc
 
 STYLE_PRIMARY = "primary"
 STYLE_SUCCESS = "success"
@@ -65,18 +65,8 @@ def create_kb(
     return kb_builder.as_markup()
 
 
-_STYLES_TARIFF = {
-    "r_30": STYLE_PRIMARY,
-    "r_90": STYLE_PRIMARY,
-    "r_365": STYLE_SUCCESS,
-    "r_white_30": STYLE_PRIMARY,
+_STYLES_TRIAL = {
     "trial_pay": STYLE_SUCCESS,
-}
-
-_STYLES_GIFT = {
-    "gift_r_30": STYLE_PRIMARY,
-    "gift_r_90": STYLE_PRIMARY,
-    "gift_r_365": STYLE_SUCCESS,
 }
 
 
@@ -126,7 +116,7 @@ def keyboard_start_bonus():
         1,
         styles={"trial_pay": STYLE_SUCCESS, "buy_vpn": STYLE_PRIMARY},
         trial_pay="✨ Попробовать 3 дня за 1₽",
-        buy_vpn="🛒 Купить от 150₽ в месяц",
+        buy_vpn="🛒 Купить от 199₽ в месяц",
     )
     return _append_partner_earn_row(markup)
 
@@ -167,73 +157,103 @@ def keyboard_my_account(*, autopay_on: bool) -> InlineKeyboardMarkup:
     )
 
 
+def keyboard_buy_device_tier(*, with_trial: bool = False):
+    kwargs = {
+        "buy_tier_3": "🔹 Тарифы на 3️⃣ устройства",
+        "buy_tier_5": "🔸 Тарифы на 5️⃣ устройств",
+        "buy_tier_10": "🏆 Тарифы на 🔟 устройств",
+        "back_to_main": BTN_BACK,
+    }
+    styles = {
+        "buy_tier_3": STYLE_PRIMARY,
+        "buy_tier_5": STYLE_PRIMARY,
+        "buy_tier_10": STYLE_SUCCESS,
+        "back_to_main": STYLE_PRIMARY,
+    }
+    if with_trial:
+        kwargs = {"trial_pay": "✨ Попробовать 3 дня за 1₽", **kwargs}
+        styles["trial_pay"] = STYLE_SUCCESS
+    return create_kb(1, styles=styles, **kwargs)
+
+
 def keyboard_tariff_bonus():
-    return create_kb(
-        1,
-        styles=_STYLES_TARIFF,
-        r_30=TARIFF_BTN_R_30,
-        r_90=TARIFF_BTN_R_90,
-        r_365=TARIFF_BTN_R_365,
-        trial_pay="✨ Попробовать 3 дня за 1₽",
-        back_to_main="🔙 Назад",
-    )
+    return keyboard_buy_device_tier(with_trial=True)
 
 
 def keyboard_tariff():
-    return create_kb(
-        1,
-        styles=_STYLES_TARIFF,
-        r_30=TARIFF_BTN_R_30,
-        r_90=TARIFF_BTN_R_90,
-        r_365=TARIFF_BTN_R_365,
-        trial_pay="✨ Попробовать 3 дня за 1₽",
-        # r_white_30="🦾 Ускоритель игр Mobile - 299 руб",
-        back_to_main="🔙 Назад",
-    )
+    return keyboard_buy_device_tier(with_trial=True)
 
 
 def keyboard_tariff_trial():
-    """Тарифы для пушей до конца подписки у пользователей без полной оплаты (reserve_field=False)."""
+    return keyboard_buy_device_tier(with_trial=True)
+
+
+def _styles_buy_duration(devices: int) -> dict[str, str]:
+    st: dict[str, str] = {"back_buy_tier": STYLE_PRIMARY}
+    for months in (1, 3, 6, 12):
+        key = f"r_m{months}_d{devices}"
+        st[key] = STYLE_SUCCESS if months >= 6 else STYLE_PRIMARY
+    return st
+
+
+def keyboard_buy_duration(devices: int) -> InlineKeyboardMarkup:
+    kwargs: dict[str, str] = {}
+    for months in (1, 3, 6, 12):
+        ck = f"r_m{months}_d{devices}"
+        dk = f"m{months}_d{devices}"
+        kwargs[ck] = dct_desc[dk]
+    kwargs["back_buy_tier"] = BTN_BACK
+    return create_kb(1, styles=_styles_buy_duration(devices), **kwargs)
+
+
+def keyboard_gift_device_tier():
     return create_kb(
         1,
-        styles={k: v for k, v in _STYLES_TARIFF.items() if k != "trial_pay"},
-        r_30=TARIFF_BTN_R_30,
-        r_90=TARIFF_BTN_R_90,
-        r_365=TARIFF_BTN_R_365,
-        trial_pay="✨ Попробовать 3 дня за 1₽",
-        back_to_main="🔙 Назад",
+        styles={
+            "gift_tier_3": STYLE_PRIMARY,
+            "gift_tier_5": STYLE_PRIMARY,
+            "gift_tier_10": STYLE_SUCCESS,
+        },
+        gift_tier_3="🔹 Тарифы на 3️⃣ устройства",
+        gift_tier_5="🔸 Тарифы на 5️⃣ устройств",
+        gift_tier_10="🏆 Тарифы на 🔟 устройств",
+        back_to_main=BTN_BACK,
     )
+
+
+def _styles_gift_duration(devices: int) -> dict[str, str]:
+    st: dict[str, str] = {"gift_back_tier": STYLE_PRIMARY}
+    for months in (1, 3, 6, 12):
+        key = f"gift_r_m{months}_d{devices}"
+        st[key] = STYLE_SUCCESS if months >= 6 else STYLE_PRIMARY
+    return st
+
+
+def keyboard_gift_duration(devices: int) -> InlineKeyboardMarkup:
+    kwargs: dict[str, str] = {}
+    for months in (1, 3, 6, 12):
+        ck = f"gift_r_m{months}_d{devices}"
+        dk = f"m{months}_d{devices}"
+        kwargs[ck] = dct_desc[dk]
+    kwargs["gift_back_tier"] = BTN_BACK
+    return create_kb(1, styles=_styles_gift_duration(devices), **kwargs)
 
 
 def keyboard_gift_tariff():
-    return create_kb(
-        1,
-        styles=_STYLES_GIFT,
-        gift_r_30=TARIFF_BTN_R_30,
-        gift_r_90=TARIFF_BTN_R_90,
-        gift_r_365=TARIFF_BTN_R_365,
-        back_to_main="🔙 Назад",
-    )
+    return keyboard_gift_device_tier()
 
 
-def keyboard_subscription(sub_url, sub_url_white):
+def keyboard_subscription(links: list[tuple[str, str]]) -> InlineKeyboardMarkup:
+    """links: (текст кнопки, https-ссылка на подписку)."""
     buttons = []
-    if sub_url:
+    for text, url in links:
+        if not url:
+            continue
         buttons.append(
             [
                 InlineKeyboardButton(
-                    text="💫 Ваша подписка на VPN",
-                    url=sub_url,
-                    style=STYLE_PRIMARY,
-                )
-            ]
-        )
-    if sub_url_white:
-        buttons.append(
-            [
-                InlineKeyboardButton(
-                    text="🦾 Мобильный тариф",
-                    url=sub_url_white,
+                    text=text[:64],
+                    url=url,
                     style=STYLE_PRIMARY,
                 )
             ]

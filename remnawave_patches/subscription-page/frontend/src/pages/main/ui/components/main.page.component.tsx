@@ -10,13 +10,13 @@
  *
  * В env контейнера subscription-page задайте ключ; при необходимости переопределите базовый URL.
  */
-import { useCallback, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import {
-    Accordion,
     Box,
     Button,
     Card,
     Center,
+    Collapse,
     Container,
     Group,
     Image,
@@ -24,7 +24,8 @@ import {
     SimpleGrid,
     Stack,
     Text,
-    Title
+    Title,
+    UnstyledButton
 } from '@mantine/core'
 import { TSubscriptionPagePlatformKey } from '@remnawave/subscription-page-types'
 
@@ -55,8 +56,59 @@ function subPagePayFromBuild(): { apiBase: string; apiKey: string } {
     }
 }
 
-type DurationId = '30' | '90' | '365' | '240'
+type DurationId =
+    | 'm1_d3'
+    | 'm3_d3'
+    | 'm6_d3'
+    | 'm12_d3'
+    | 'm1_d5'
+    | 'm3_d5'
+    | 'm6_d5'
+    | 'm12_d5'
+    | 'm1_d10'
+    | 'm3_d10'
+    | 'm6_d10'
+    | 'm12_d10'
+
 type PayMethodId = 'fk_sbp' | 'fk_card' | 'stars' | 'cryptobot'
+
+type DeviceTier = 3 | 5 | 10
+
+function deviceTierFromUsername(username: string): DeviceTier {
+    if (username.endsWith('_10')) return 10
+    if (username.endsWith('_3')) return 3
+    return 5
+}
+
+function payBlockTitle(tier: DeviceTier): string {
+    if (tier === 3) return 'Оплата подписки на 3 устройства'
+    if (tier === 10) return 'Оплата подписки на 10 устройств'
+    return 'Оплата подписки на 5 устройств'
+}
+
+const TARIFF_ROWS: Record<
+    DeviceTier,
+    ReadonlyArray<{ label: string; duration: DurationId }>
+> = {
+    3: [
+        { label: '1 месяц — 199 ₽', duration: 'm1_d3' },
+        { label: '3 месяца — 499 ₽ (выгода −16%)', duration: 'm3_d3' },
+        { label: '6 месяцев — 999 ₽ (выгода −16%)', duration: 'm6_d3' },
+        { label: '12 месяцев — 1188 ₽ (выгода −50%)', duration: 'm12_d3' }
+    ],
+    5: [
+        { label: '1 месяц — 299 ₽', duration: 'm1_d5' },
+        { label: '3 месяца — 749 ₽ (выгода −16%)', duration: 'm3_d5' },
+        { label: '6 месяцев — 1349 ₽ (выгода −25%)', duration: 'm6_d5' },
+        { label: '12 месяцев — 1799 ₽ (выгода −50%)', duration: 'm12_d5' }
+    ],
+    10: [
+        { label: '1 месяц — 659 ₽', duration: 'm1_d10' },
+        { label: '3 месяца — 1349 ₽ (выгода −32%)', duration: 'm3_d10' },
+        { label: '6 месяцев — 2399 ₽ (выгода −39%)', duration: 'm6_d10' },
+        { label: '12 месяцев — 3239 ₽ (выгода −59%)', duration: 'm12_d10' }
+    ]
+}
 
 const PAY_METHODS: ReadonlyArray<{ id: PayMethodId; label: string }> = [
     { id: 'fk_sbp', label: 'СБП' },
@@ -81,6 +133,7 @@ function parseSubPageUserId(username: string): number | null {
 
 function SubscriptionPayBlock({ isMobile }: { isMobile: boolean }) {
     const { user } = useSubscription()
+    const tier = useMemo(() => deviceTierFromUsername(user.username), [user.username])
     const userId = useMemo(() => parseSubPageUserId(user.username), [user.username])
     const payCfg = useMemo(() => subPagePayFromBuild(), [])
     const subscriptionStillActive = useMemo(() => {
@@ -89,10 +142,15 @@ function SubscriptionPayBlock({ isMobile }: { isMobile: boolean }) {
         return Number(user.daysLeft) > 0
     }, [user.daysLeft, user.userStatus])
 
+    const [payExpanded, setPayExpanded] = useState(() => !subscriptionStillActive)
     const [modalOpen, setModalOpen] = useState(false)
     const [pickedDuration, setPickedDuration] = useState<DurationId | null>(null)
     const [busyMethod, setBusyMethod] = useState<PayMethodId | null>(null)
     const [errorText, setErrorText] = useState<string | null>(null)
+
+    useEffect(() => {
+        setPayExpanded(!subscriptionStillActive)
+    }, [subscriptionStillActive])
 
     const openPay = useCallback((d: DurationId) => {
         setErrorText(null)
@@ -135,8 +193,8 @@ function SubscriptionPayBlock({ isMobile }: { isMobile: boolean }) {
                     setErrorText(msg)
                     return
                 }
-                const obj = data as { url?: string; payment_url?: string; bot_url?: string }
-                const redirect = obj.url || obj.payment_url || obj.bot_url
+                const obj = data as { payment_url?: string; bot_url?: string }
+                const redirect = obj.payment_url || obj.bot_url
                 if (redirect && typeof redirect === 'string') {
                     window.location.assign(redirect)
                     return
@@ -152,6 +210,7 @@ function SubscriptionPayBlock({ isMobile }: { isMobile: boolean }) {
     )
 
     if (!payCfg.apiKey) {
+        if (subscriptionStillActive) return null
         return (
             <Card p="md" radius="lg" withBorder>
                 <Text c="dimmed" size="sm">
@@ -163,6 +222,7 @@ function SubscriptionPayBlock({ isMobile }: { isMobile: boolean }) {
     }
 
     if (userId == null) {
+        if (subscriptionStillActive) return null
         return (
             <Card p="md" radius="lg" withBorder>
                 <Text c="dimmed" size="sm">
@@ -172,62 +232,53 @@ function SubscriptionPayBlock({ isMobile }: { isMobile: boolean }) {
         )
     }
 
-    const tariffBtn = (label: string, duration: DurationId) => (
-        <Button
-            fullWidth
-            justify="space-between"
-            onClick={() => openPay(duration)}
-            radius="md"
-            size={isMobile ? 'sm' : 'md'}
-            variant="light"
-        >
-            <Text fw={500} size="sm" style={{ textAlign: 'left' }}>
-                {label}
-            </Text>
-        </Button>
-    )
-
-    const payStatusLine =
-        subscriptionStillActive && user.daysLeft != null ? (
-            <Text c="dimmed" size="sm" mt={4}>
-                Осталось дней: {user.daysLeft}
-            </Text>
-        ) : subscriptionStillActive ? (
-            <Text c="dimmed" size="sm" mt={4}>
-                Подписка активна
-            </Text>
-        ) : null
+    const rows = TARIFF_ROWS[tier]
 
     return (
         <>
-            {/*
-             Как в Zoomer: неконтролируемый Accordion + key при смене статуса подписки,
-             чтобы заново применился defaultValue (свёрнут при ACTIVE, развёрнут когда нужна оплата).
-             Без disabled на Control — иначе при ошибочно «ACTIVE» + daysLeft=null блок оплаты недоступен.
-             */}
-            <Accordion
-                chevronPosition="right"
-                defaultValue={subscriptionStillActive ? undefined : 'pay'}
-                key={subscriptionStillActive ? 'pay-collapsed' : 'pay-open'}
-                radius="lg"
-                variant="contained"
-            >
-                <Accordion.Item value="pay">
-                    <Accordion.Control>
-                        <Title c="white" order={5}>
-                            Оплата
-                        </Title>
-                        {payStatusLine}
-                    </Accordion.Control>
-                    <Accordion.Panel>
+            <Card p="md" radius="lg" withBorder>
+                <Stack gap="md">
+                    <UnstyledButton onClick={() => setPayExpanded((v) => !v)} w="100%">
+                        <Group gap="sm" justify="space-between" wrap="nowrap">
+                            <Title c="white" order={5} style={{ flex: 1, textAlign: 'left' }}>
+                                {payBlockTitle(tier)}
+                            </Title>
+                            <Box
+                                aria-hidden
+                                c="dimmed"
+                                style={{
+                                    flexShrink: 0,
+                                    fontSize: 12,
+                                    lineHeight: 1,
+                                    transform: payExpanded ? 'rotate(180deg)' : 'rotate(0deg)',
+                                    transition: 'transform 200ms ease'
+                                }}
+                            >
+                                ▼
+                            </Box>
+                        </Group>
+                    </UnstyledButton>
+                    <Collapse in={payExpanded}>
                         <Stack gap="sm">
-                            {tariffBtn('1 месяц — 349 ₽', '30')}
-                            {tariffBtn('3 месяца — 749 ₽ (выгода −30%)', '90')}
-                            {tariffBtn('12 месяцев — 1799 ₽ (выгода −60%)', '365')}
+                            {rows.map((row) => (
+                                <Button
+                                    key={row.duration}
+                                    fullWidth
+                                    justify="space-between"
+                                    onClick={() => openPay(row.duration)}
+                                    radius="md"
+                                    size={isMobile ? 'sm' : 'md'}
+                                    variant="light"
+                                >
+                                    <Text fw={500} size="sm" style={{ textAlign: 'left' }}>
+                                        {row.label}
+                                    </Text>
+                                </Button>
+                            ))}
                         </Stack>
-                    </Accordion.Panel>
-                </Accordion.Item>
-            </Accordion>
+                    </Collapse>
+                </Stack>
+            </Card>
 
             <Modal
                 centered

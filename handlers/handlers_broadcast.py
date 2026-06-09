@@ -24,9 +24,8 @@ from keyboard import (
     STYLE_SUCCESS,
     create_kb,
     keyboard_start,
-    keyboard_tariff,
+    keyboard_buy_device_tier,
 )
-from lexicon import TARIFF_BTN_R_30, TARIFF_BTN_R_90, TARIFF_BTN_R_365
 from logging_config import logger
 from telegram_ids import is_telegram_chat_id
 
@@ -72,11 +71,9 @@ CUSTOM_PRESETS = [
     ("ref", "👥 Рефералка", STYLE_PRIMARY),
     ("buy_gift", "🎁 Подарить подписку", STYLE_SUCCESS),
     ("start_gift", "🎁 Подарить подписку", STYLE_SUCCESS),
-    ("r_30", TARIFF_BTN_R_30, STYLE_PRIMARY),
-    ("r_90", TARIFF_BTN_R_90, STYLE_PRIMARY),
-    ("r_365", TARIFF_BTN_R_365, STYLE_SUCCESS),
-    ("r_240", TARIFF_BTN_R_365, STYLE_SUCCESS),
-    ("r_white_30", "🦾 Ускоритель игр Mobile - 299 руб", STYLE_PRIMARY),
+    ("buy_tier_3", "🔹 Тарифы на 3️⃣ устройства", STYLE_PRIMARY),
+    ("buy_tier_5", "🔸 Тарифы на 5️⃣ устройств", STYLE_PRIMARY),
+    ("buy_tier_10", "🏆 Тарифы на 🔟 устройств", STYLE_SUCCESS),
     ("back_to_main", "🔙 Назад", None),
     ("ref_invite", "Пригласить друзей🫶", STYLE_SUCCESS),
 ]
@@ -254,7 +251,7 @@ def _resolve_reply_markup(
     if keyboard_mode == "none":
         return None
     if keyboard_mode == "tariff":
-        return keyboard_tariff()
+        return keyboard_buy_device_tier(with_trial=True)
     if keyboard_mode == "start":
         return keyboard_start()
     if keyboard_mode == "custom":

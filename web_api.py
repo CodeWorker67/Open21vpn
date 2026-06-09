@@ -13,6 +13,7 @@ import asyncio
 import hashlib
 import hmac
 import os
+import re
 import secrets
 import smtplib
 import string
@@ -24,7 +25,6 @@ from typing import Annotated, Any, Literal, Optional
 import aiohttp
 import bcrypt
 import jwt
-from aiogram.types import LabeledPrice
 from fastapi import Depends, FastAPI, HTTPException, Request, Security, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
@@ -54,14 +54,19 @@ from config import (
 from unisender_go import send_transactional_email, unisender_go_configured
 from config_bd.models import create_tables
 from config_bd.utils import _norm_email, user_row_to_api_dict
-from keyboard import keyboard_payment_stars
-from lexicon import TARIFF_SAVINGS_PCT, dct_desc, dct_price, lexicon
+from lexicon import TARIFF_SAVINGS_PCT, dct_desc, dct_price, lexicon, payment_tariff_summary_pro, tariff_rub_and_desc
 from logging_config import logger
 from payments.payload_source import SITE, SUBPAGE
 from payments.pay_cryptobot import create_cryptobot_payment
 from payments.pay_freekassa import pay_site
-from payments.pay_stars import get_stars_amount
-from X3 import panel_username_for_site_user
+from payments.pay_stars import send_stars_subscription_invoice
+from payments.payment_limits import payment_creation_allowed
+from tariff_resolve import (
+    device_from_tariff_key,
+    panel_username,
+    panel_username_for_site_user,
+    tariff_days_for_x3,
+)
 
 # ── Rate limiter (in-memory, per-IP) ─────────────────────────────────
 _rate_limits: dict[str, list[float]] = {}
@@ -160,25 +165,21 @@ def create_bot_site_login_token(
 
 AUTH_COOKIE_NAME = "open21_auth"
 
-# Тарифы сайта (как в боте: 30 / 90 / 365 дней). Пробный «3» не продаётся через API.
-TARIFF_PUBLIC = [
-    ("30", "1 месяц", 5, False),
-    ("90", "3 месяца", 5, False),
-    ("365", "12 месяцев", 5, False),
+DurationId = Literal[
+    "m1_d3", "m3_d3", "m6_d3", "m12_d3",
+    "m1_d5", "m3_d5", "m6_d5", "m12_d5",
+    "m1_d10", "m3_d10", "m6_d10", "m12_d10",
 ]
 
-# СБП на подписной странице: отдельные цены для 7 / 180 / 3000 (как в старом web_api).
-FK_SBP_SUBPAGE_PRICE_RUB: dict[str, int] = {
-    "7": 99,
-    "30": dct_price["30"],
-    "90": dct_price["90"],
-    "180": 849,
-    "365": dct_price["365"],
-    "240": dct_price["365"],
-    "3000": 12999,
-}
+_PRO_TARIFF_RE = re.compile(r"^m\d+_d\d+$")
 
-SubPageDuration = Literal["7", "30", "90", "180", "240", "365", "3000"]
+TARIFF_PUBLIC: list[tuple[str, str, int, bool]] = []
+for _devices in (3, 5, 10):
+    for _months, _label in ((1, "1 месяц"), (3, "3 месяца"), (6, "6 месяцев"), (12, "12 месяцев")):
+        _tid = f"m{_months}_d{_devices}"
+        TARIFF_PUBLIC.append((_tid, f"{_label} · {_devices} устройств", _devices, False))
+
+SubPageDuration = DurationId
 SUB_PAGE_PAYLOAD_SOURCE = SUBPAGE
 
 _CORS_ORIGIN_REGEX = os.environ.get(
@@ -206,19 +207,23 @@ app.add_middleware(
 bearer_scheme = HTTPBearer(auto_error=False)
 
 
+def _is_pro_tariff_id(tariff_id: str) -> bool:
+    return bool(_PRO_TARIFF_RE.fullmatch(tariff_id))
+
+
 def _site_tariff_price(tariff_id: str) -> Optional[int]:
-    if tariff_id not in dct_price or tariff_id == "3":
+    if not _is_pro_tariff_id(tariff_id):
+        return None
+    if tariff_id not in dct_price:
         return None
     return int(dct_price[tariff_id])
 
 
-def _subpage_price(duration: str, *, sbp: bool) -> Optional[int]:
-    if sbp:
-        return FK_SBP_SUBPAGE_PRICE_RUB.get(duration)
-    key = "240" if duration == "240" else duration
-    if key not in dct_price:
-        return None
-    return int(dct_price[key])
+def _subpage_rub(user_id: int, duration: DurationId) -> int:
+    rub, _ = tariff_rub_and_desc(duration)
+    if user_id in ADMIN_IDS:
+        return 1
+    return rub
 
 
 def _require_jwt_secret() -> str:
@@ -270,15 +275,13 @@ def _activ_block(result: dict) -> tuple[bool, Optional[str]]:
     return active, expires
 
 
-def _tariff_parts(tariff_id: str) -> tuple[str, str, bool]:
-    desc_key = tariff_id
-    white = "white_" in tariff_id
-    d = tariff_id
-    if white:
-        d = d.replace("white_", "", 1)
-    if d == "240":
-        d = "365"
-    return desc_key, d, white
+def _tariff_parts(tariff_id: str) -> tuple[str, str, bool, int]:
+    """desc_key, duration_days_str, white (всегда False на сайте), device_slots."""
+    if not _is_pro_tariff_id(tariff_id):
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Unknown tariff")
+    days = str(tariff_days_for_x3(tariff_id))
+    device_n = device_from_tariff_key(tariff_id)
+    return tariff_id, days, False, device_n
 
 
 def _client_is_https(request: Request) -> bool:
@@ -387,7 +390,7 @@ async def resolve_telegram_user_id(ctx: dict[str, Any]) -> int:
     return tg
 
 
-async def _panel_vpn_usernames(ctx: dict[str, Any]) -> tuple[str, str]:
+async def _panel_slot_usernames(ctx: dict[str, Any]) -> dict[str, str]:
     row = await _user_row_from_jwt(ctx)
     if row is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "User not found")
@@ -398,14 +401,17 @@ async def _panel_vpn_usernames(ctx: dict[str, Any]) -> tuple[str, str]:
         tg = int(tg_col)
     elif linked is not None and int(linked) > 0:
         tg = int(linked)
+    out: dict[str, str] = {}
     if tg is not None:
-        s = str(tg)
-        return s, f"{s}_white"
+        out["pro_5"] = panel_username(tg, white=False, device_slots=5)
+        out["pro_3"] = panel_username(tg, white=False, device_slots=3)
+        out["pro_10"] = panel_username(tg, white=False, device_slots=10)
+        return out
     db_uid = int(tg_col)
-    return (
-        panel_username_for_site_user(db_uid, False),
-        panel_username_for_site_user(db_uid, True),
-    )
+    out["pro_5"] = panel_username_for_site_user(db_uid, white=False, device_slots=5)
+    out["pro_3"] = panel_username_for_site_user(db_uid, white=False, device_slots=3)
+    out["pro_10"] = panel_username_for_site_user(db_uid, white=False, device_slots=10)
+    return out
 
 
 def _hash_password(password: str) -> str:
@@ -966,26 +972,23 @@ async def auth_logout(request: Request):
 
 @app.get("/api/user/subscription")
 async def user_subscription(ctx: JwtCtx):
-    pro_un, white_un = await _panel_vpn_usernames(ctx)
-    result_pro = await x3.activ(pro_un)
-    result_white = await x3.activ(white_un)
-    pa, pe = _activ_block(result_pro)
-    ma, me = _activ_block(result_white)
-    return {
-        "pro": {"active": pa, "expires": pe},
-        "mobile": {"active": ma, "expires": me},
-    }
+    slots = await _panel_slot_usernames(ctx)
+    out: dict[str, dict[str, Any]] = {}
+    for key, username in slots.items():
+        result = await x3.activ(username)
+        active, expires = _activ_block(result)
+        out[key] = {"active": active, "expires": expires}
+    return out
 
 
 @app.get("/api/user/keys")
 async def user_keys(ctx: JwtCtx):
-    pro_un, white_un = await _panel_vpn_usernames(ctx)
-    sub_url = await x3.sublink(pro_un)
-    sub_white = await x3.sublink(white_un)
-    return {
-        "pro_url": sub_url or None,
-        "mobile_url": sub_white or None,
-    }
+    slots = await _panel_slot_usernames(ctx)
+    out: dict[str, Optional[str]] = {}
+    for key, username in slots.items():
+        sub_url = await x3.sublink(username)
+        out[f"{key}_url"] = sub_url or None
+    return out
 
 
 @app.get("/api/user/account")
@@ -1061,9 +1064,8 @@ async def config_tariffs():
             "price": price,
             "devices": devices,
         }
-        days = int(tid) if tid.isdigit() else None
-        if days and days in TARIFF_SAVINGS_PCT:
-            item["savings_pct"] = TARIFF_SAVINGS_PCT[days]
+        if tid in TARIFF_SAVINGS_PCT:
+            item["savings_pct"] = TARIFF_SAVINGS_PCT[tid]
         if first_only:
             item["first_payment_only"] = True
         out.append(item)
@@ -1083,7 +1085,7 @@ async def payments_create(ctx: JwtCtx, body: CreatePaymentIn):
     if tariff_id == "3" or _site_tariff_price(tariff_id) is None:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Unknown tariff")
 
-    desc_key, duration_str, white = _tariff_parts(tariff_id)
+    desc_key, duration_str, white, device_n = _tariff_parts(tariff_id)
     price = _site_tariff_price(tariff_id) or 0
     if billing_user_id in ADMIN_IDS:
         price = 1
@@ -1091,9 +1093,10 @@ async def payments_create(ctx: JwtCtx, body: CreatePaymentIn):
     if not API_FREEKASSA or SHOP_ID_FREEKASSA is None:
         raise HTTPException(status.HTTP_500_INTERNAL_SERVER_ERROR, "FreeKassa is not configured")
 
+    rub, _ = tariff_rub_and_desc(desc_key)
     description = (
         f"Подписка в подарок {dct_desc.get(desc_key, desc_key)}" if body.is_gift
-        else dct_desc.get(desc_key, f"Open 21 VPN — {duration_str} дней")
+        else payment_tariff_summary_pro(desc_key)
     )
     site_uname = ctx.get("username")
     if not isinstance(site_uname, str):
@@ -1102,10 +1105,10 @@ async def payments_create(ctx: JwtCtx, body: CreatePaymentIn):
     result = await pay_site(
         val=str(price),
         des=description,
-        payload_user=str(billing_user_id),
         billing_user_id=billing_user_id,
         duration=duration_str,
         white=white,
+        device=device_n,
         is_gift=body.is_gift,
         kind=body.method,
         telegram_username=site_uname,
@@ -1144,9 +1147,11 @@ async def gift_activate(ctx: JwtCtx, gift_id: str):
         raise HTTPException(status.HTTP_400_BAD_REQUEST, detail=lexicon["gift_no"])
     duration = result[1]
     white_flag = result[2]
-    user_id_str = str(user_id)
-    if white_flag:
-        user_id_str += "_white"
+    device_slots = result[4] if result[4] is not None else 5
+    if not white_flag and device_slots not in (3, 5, 10):
+        device_slots = 5
+    user_id_str = panel_username(user_id, white=white_flag, device_slots=device_slots)
+    hw_lim = None if white_flag else device_slots
     was_in_db = await sql.get_user(user_id) is not None
     if not was_in_db:
         await sql.add_user(user_id, False)
@@ -1154,7 +1159,7 @@ async def gift_activate(ctx: JwtCtx, gift_id: str):
     if existing_user and "response" in existing_user and existing_user["response"]:
         response = await x3.updateClient(duration, user_id_str, user_id)
     else:
-        response = await x3.addClient(duration, user_id_str, user_id)
+        response = await x3.addClient(duration, user_id_str, user_id, hwid_device_limit=hw_lim)
     if not response:
         raise HTTPException(status.HTTP_500_INTERNAL_SERVER_ERROR, detail=lexicon["gift_error"])
     result_active = await x3.activ(user_id_str)
@@ -1174,19 +1179,15 @@ async def sub_page_pay_fk_sbp(body: SubPagePayIn, request: Request, _: SubPageAu
     _rate_limit_or_raise(_client_ip_for_rate_limit(request), "sub_page_fk_sbp", max_req=20, window=300)
     if not API_FREEKASSA or SHOP_ID_FREEKASSA is None:
         raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, "FreeKassa не настроена")
-    desc_key, duration_str, white = _tariff_parts(body.duration)
-    price = _subpage_price(body.duration, sbp=True)
-    if price is None:
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Unknown SBP duration")
-    if body.user_id in ADMIN_IDS:
-        price = 10
+    desc_key, duration_str, white, device_n = _tariff_parts(body.duration)
+    price = _subpage_rub(body.user_id, body.duration)
     result = await pay_site(
         val=str(price),
-        des=dct_desc.get(desc_key, f"Open 21 VPN — {duration_str} дней"),
-        payload_user=str(body.user_id),
+        des=payment_tariff_summary_pro(desc_key),
         billing_user_id=body.user_id,
         duration=duration_str,
         white=white,
+        device=device_n,
         is_gift=False,
         kind="sbp",
         telegram_username=None,
@@ -1208,23 +1209,17 @@ async def sub_page_pay_fk_sbp(body: SubPagePayIn, request: Request, _: SubPageAu
 @app.post("/api/v1/sub_page/pay/fk_card")
 async def sub_page_pay_fk_card(body: SubPagePayIn, request: Request, _: SubPageAuth):
     _rate_limit_or_raise(_client_ip_for_rate_limit(request), "sub_page_fk_card", max_req=20, window=300)
-    if body.duration not in ("30", "90", "365", "240"):
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Карта: доступны тарифы 30 / 90 / 365 дней")
     if not API_FREEKASSA or SHOP_ID_FREEKASSA is None:
         raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, "FreeKassa не настроена")
-    desc_key, duration_str, white = _tariff_parts(body.duration)
-    price = _subpage_price(body.duration, sbp=False)
-    if price is None:
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Unknown tariff")
-    if body.user_id in ADMIN_IDS:
-        price = 1
+    desc_key, duration_str, white, device_n = _tariff_parts(body.duration)
+    price = _subpage_rub(body.user_id, body.duration)
     result = await pay_site(
         val=str(price),
-        des=dct_desc.get(desc_key, f"Open 21 VPN — {duration_str} дней"),
-        payload_user=str(body.user_id),
+        des=payment_tariff_summary_pro(desc_key),
         billing_user_id=body.user_id,
         duration=duration_str,
         white=white,
+        device=device_n,
         is_gift=False,
         kind="card",
         telegram_username=None,
@@ -1246,31 +1241,20 @@ async def sub_page_pay_fk_card(body: SubPagePayIn, request: Request, _: SubPageA
 @app.post("/api/v1/sub_page/pay/stars")
 async def sub_page_pay_stars(body: SubPagePayIn, request: Request, _: SubPageAuth):
     _rate_limit_or_raise(_client_ip_for_rate_limit(request), "sub_page_stars", max_req=20, window=300)
-    if body.duration not in ("30", "90", "365", "240"):
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Stars: доступны тарифы 30 / 90 / 365 дней")
-    desc_key, duration_str, white = _tariff_parts(body.duration)
-    stars_key = "365" if body.duration == "240" else body.duration
-    stars_amount = int(get_stars_amount("Stars", stars_key))
+    desc_key, duration_str, white, device_n = _tariff_parts(body.duration)
+    stars_amount = int(dct_price.get(body.duration, 0))
     if body.user_id in ADMIN_IDS:
         stars_amount = 1
-    gift_flag = False
-    payload = (
-        f"user_id:{body.user_id},duration:{duration_str},white:{white},gift:{gift_flag},"
-        f"method:stars,amount:{stars_amount},source:{SUB_PAGE_PAYLOAD_SOURCE}"
-    )
-    prices = [LabeledPrice(label="XTR", amount=stars_amount)]
-    title = f"Оплата подписки на {duration_str} дней."
-    description = lexicon["payment_link_white"] if white else lexicon["payment_link"]
     try:
-        await bot.send_invoice(
+        await send_stars_subscription_invoice(
             body.user_id,
-            title=title,
-            description=description,
-            prices=prices,
-            provider_token="",
-            payload=payload,
-            currency="XTR",
-            reply_markup=keyboard_payment_stars(stars_amount),
+            duration_days_str=duration_str,
+            stars_amount=stars_amount,
+            white_flag=white,
+            gift_flag=False,
+            device_n=device_n,
+            source=SUB_PAGE_PAYLOAD_SOURCE,
+            description=payment_tariff_summary_pro(body.duration),
         )
     except Exception as e:
         logger.error(f"sub_page stars send_invoice user_id={body.user_id}: {e}")
@@ -1285,23 +1269,24 @@ async def sub_page_pay_stars(body: SubPagePayIn, request: Request, _: SubPageAut
 @app.post("/api/v1/sub_page/pay/cryptobot")
 async def sub_page_pay_cryptobot(body: SubPagePayIn, request: Request, _: SubPageAuth):
     _rate_limit_or_raise(_client_ip_for_rate_limit(request), "sub_page_cryptobot", max_req=20, window=300)
-    if body.duration not in ("30", "90", "365", "240"):
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, "CryptoBot: доступны тарифы 30 / 90 / 365 дней")
     if not CRYPTOBOT_API_TOKEN:
         raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, "CryptoBot не настроен")
-    desc_key, duration_str, white = _tariff_parts(body.duration)
-    price = _subpage_price(body.duration, sbp=False)
-    if price is None:
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Unknown tariff")
-    if body.user_id in ADMIN_IDS:
-        price = 1
+    if not await payment_creation_allowed(body.user_id):
+        raise HTTPException(
+            status.HTTP_429_TOO_MANY_REQUESTS,
+            lexicon["payment_too_many_pending"].format(PAYMENT_MAX_PENDING_PER_USER),
+        )
+    desc_key, duration_str, white, device_n = _tariff_parts(body.duration)
+    price = _subpage_rub(body.user_id, body.duration)
+    _, des = tariff_rub_and_desc(desc_key)
     result = await create_cryptobot_payment(
         rub_amount=price,
-        description=dct_desc.get(desc_key, f"Open 21 VPN — {duration_str} дней"),
+        description=payment_tariff_summary_pro(desc_key),
         user_id=body.user_id,
         duration=duration_str,
         white=white,
         is_gift=False,
+        device=device_n,
         source=SUB_PAGE_PAYLOAD_SOURCE,
     )
     if result.get("status") == "rate_limited":

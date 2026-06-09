@@ -1,4 +1,49 @@
+import re
+
 from config import SUPPORT_URL, DOCUMENT_URL_1, DOCUMENT_URL_2, BOT_URL, DOCUMENT_URL_3
+
+_TARIFF_COUNTRIES_LINE = '5 стран на выбор.\n'
+_TARIFF_SERVERS_LINE = 'Множество серверов.\n'
+_TARIFF_GEO_LINES = _TARIFF_COUNTRIES_LINE + _TARIFF_SERVERS_LINE
+
+_BUY_INTRO = (
+    'Можно начать с <b>пробного периода на 3 дня за 1 ₽</b> или сразу выбрать подписку.\n\n'
+    '• YOUTUBE без рекламы \n'
+    '• Без ограничений по скорости и трафику \n'
+    '• 🌏 Доступны 5 стран на выбор \n'
+    '• Множество серверов \n\n'
+)
+_BUY_DEVICES_3 = '• До 3 устройств одновременно \n'
+_BUY_DEVICES_5 = '• До 5 устройств одновременно \n'
+_BUY_DEVICES_10 = '• До 10 устройств одновременно \n'
+_BUY_OUTRO = '⬇️ Выберите тариф ⬇️'
+
+_PAYMENT_PRO_HEAD = f'Тариф — 💫 Open 21 VPN\n{_TARIFF_GEO_LINES}'
+_PAYMENT_PRO_3_LINE = '3 устройства, безлимитный трафик.'
+_PAYMENT_PRO_5_LINE = '5 устройств, безлимитный трафик.'
+_PAYMENT_PRO_10_LINE = '10 устройств, безлимитный трафик.'
+
+
+def buy_text_for_pro_hwid(device_limit: int) -> str:
+    """Текст «Купить подписку» с указанием лимита устройств."""
+    if device_limit >= 10:
+        dev = _BUY_DEVICES_10
+    elif device_limit >= 5:
+        dev = _BUY_DEVICES_5
+    else:
+        dev = _BUY_DEVICES_3
+    return _BUY_INTRO + dev + _BUY_OUTRO
+
+
+def payment_link_pro_for_hwid(device_limit: int) -> str:
+    """Описание PRO для счёта / экрана оплаты."""
+    if device_limit >= 10:
+        line = _PAYMENT_PRO_10_LINE
+    elif device_limit >= 5:
+        line = _PAYMENT_PRO_5_LINE
+    else:
+        line = _PAYMENT_PRO_3_LINE
+    return _PAYMENT_PRO_HEAD + line
 
 lexicon = {
     'to_chanel': 'Друзья, чтобы гарантированно оставаться на связи и всегда иметь рабочий инструмент под рукой, мы создали отдельный канал.\n\n'
@@ -10,8 +55,8 @@ lexicon = {
                    'Это безопасный VPN-сервис, сделанный с качеством и заботой. Создан для себя и друзей. \n\n'
                    'Особое внимание уделено приватности и безопасности (используем более защищённую технологию V2Ray VLESS Reality). Максимальная скорость 10 Гбит/с.\n\n'
                    '👉 Для получения доступа к VPN:\n'
-                   '1️⃣ "<b>✨ Попробовать 3 дня за 1₽</b>" — пробный период (далее автопродление 349 ₽/мес, можно отключить в «Мой аккаунт»)\n'
-                   '2️⃣ "<b>🛒 Купить от 150₽ в месяц</b>" — выбрать тариф\n\n'
+                   '1️⃣ "<b>✨ Попробовать 3 дня за 1₽</b>" — пробный период (далее автопродление 299 ₽/мес на 5 устройств, можно отключить в «Мой аккаунт»)\n'
+                   '2️⃣ "<b>🛒 Купить от 199₽ в месяц</b>" — выбрать тариф\n\n'
                    f'Не получилось? - напишите в <a href="{SUPPORT_URL}">Поддержку</a> \n\n'
                    'При использование наших услуг вы автоматически соглашаетесь на наши:\n\n'
                    f' - <a href="{DOCUMENT_URL_1}">Политика конфиденциальности.</a>\n'
@@ -31,29 +76,27 @@ lexicon = {
 
 
 
-    'buy': 'Можно начать с <b>пробного периода на 3 дня за 1 ₽</b> или сразу выбрать подписку.\n\n'
-                 '• YOUTUBE без рекламы \n'
-                 '• До 5 устройств одновременно \n'
-                 '• Без ограничений по скорости и трафику \n'
-                 '• 🌏 Доступны 5 стран на выбор \n\n'
-                 '⬇️ Выберите тариф ⬇️',
+    'buy': _BUY_INTRO + _BUY_DEVICES_10 + _BUY_OUTRO,
+
+    'choose_tariff': '<b>Выберите тариф:</b>',
+    'choose_duration': '<b>Выберите срок подписки:</b>',
 
     'no_sub': '❌ Subscription URL не найден. Сначала оформите подписку.',
     'to_sub': 'Выберите подписку и войдите в личный кабинет, далее следуйте инструкциям.',
 
     'payment_link': 'Тариф - 💫 Open 21 VPN\n'
-                    '5 стран на выбор.\n'
-                    '5 устройств, безлимитный трафик.',
+                    + _TARIFF_GEO_LINES
+                    + '5 устройств, безлимитный трафик.',
 
     'payment_link_trial': 'Пробный период <b>3 дня за 1 ₽</b>.\n'
                           'После окончания пробного периода подписка продлевается автоматически '
-                          'на 30 дней за <b>349 ₽</b> (можно отключить в «👤 Мой аккаунт»).\n\n'
-                          '5 стран на выбор.\n'
-                          '5 устройств, безлимитный трафик.',
+                          'на 30 дней за <b>299 ₽</b> (5 устройств; можно отключить в «👤 Мой аккаунт»).\n\n'
+                          + _TARIFF_GEO_LINES
+                          + '5 устройств, безлимитный трафик.',
 
     'trial_pay_intro': 'Пробный доступ на <b>3 дня за 1 ₽</b>.\n\n'
                        'После окончания пробного периода подписка продлевается автоматически '
-                       'на 30 дней за <b>349 ₽</b>. Отключить автоплатёж можно в разделе «👤 Мой аккаунт».\n\n'
+                       'на 30 дней за <b>299 ₽</b> (5 устройств). Отключить автоплатёж можно в разделе «👤 Мой аккаунт».\n\n'
                        'Выберите способ оплаты:',
 
     'yookassa_trial_only': 'ЮKassa доступна только для пробного периода (3 дня за 1 ₽).',
@@ -69,7 +112,7 @@ lexicon = {
     'free_vpn_yes': '✅ Пробный период активирован — <b>3 дня за 1 ₽</b>!\n\n'
                     'Нажмите «🔗 Подключить Open 21 VPN», чтобы настроить доступ.',
     'free_vpn_legacy': 'Пробный период оформляется за <b>1 ₽</b> через ЮKassa (<b>3 дня</b>). '
-                       'Далее — автопродление 349 ₽/мес (можно отключить в «👤 Мой аккаунт»).\n\n'
+                       'Далее — автопродление 299 ₽/мес на 5 устройств (можно отключить в «👤 Мой аккаунт»).\n\n'
                        'Выберите действие ниже.',
 
     'buy_success': '✅ Подписка успешно активирована!\n'
@@ -392,39 +435,137 @@ YouTube сам себя не посмотрит, а контент уже жде
 
 dct_price = {
     '3': 1,
-    '30': 349,
-    '90': 749,
-    '365': 1799,
-    '240': 1799,
     'white_30': 299,
+    # PRO: месяцы × устройства (ключ без префикса r_; в callback полный ключ r_m1_d3)
+    'm1_d3': 199,
+    'm3_d3': 499,
+    'm6_d3': 999,
+    'm12_d3': 1188,
+    'm1_d5': 299,
+    'm3_d5': 749,
+    'm6_d5': 1349,
+    'm12_d5': 1799,
+    'm1_d10': 659,
+    'm3_d10': 1349,
+    'm6_d10': 2399,
+    'm12_d10': 3239,
 }
 
 TRIAL_TARIFF_PAYMENT_RUB = 1
-RENEWAL_MONTH_PRICE_RUB = 349
+RENEWAL_MONTH_PRICE_RUB = 299
 
-
-# Маркетинговые проценты выгоды (фиксированные, как в SocialmediaVPN).
-TARIFF_SAVINGS_PCT: dict[int, int] = {
-    90: 30,
-    365: 60,
+TARIFF_SAVINGS_PCT: dict[str, int] = {
+    'm3_d3': 16,
+    'm6_d3': 16,
+    'm12_d3': 50,
+    'm3_d5': 16,
+    'm6_d5': 25,
+    'm12_d5': 50,
+    'm3_d10': 32,
+    'm6_d10': 39,
+    'm12_d10': 59,
 }
 
 
-def _tariff_savings_suffix(days: int) -> str:
-    pct = TARIFF_SAVINGS_PCT.get(days)
-    return f' (выгода -{pct}%)' if pct else ''
+def tariff_rub_and_desc(duration_key: str):
+    return dct_price[duration_key], dct_desc[duration_key]
 
 
-TARIFF_BTN_R_30 = f'🤝 1 месяц — {dct_price["30"]} ₽'
-TARIFF_BTN_R_90 = f'👌 3 месяца — {dct_price["90"]} ₽{_tariff_savings_suffix(90)}'
-TARIFF_BTN_R_365 = f'💪 12 месяцев — {dct_price["365"]} ₽{_tariff_savings_suffix(365)}'
+def tariff_desc_key_from_payment_callback(tariff: str) -> str:
+    """Ключ цены из callback кнопки оплаты (r_m3_d3 / gift_r_m3_d3 → m3_d3)."""
+    if tariff.startswith('gift_r_'):
+        return tariff[len('gift_r_') :]
+    if tariff.startswith('r_'):
+        return tariff[2:]
+    return tariff
+
+
+def _price_rub_for_desc_key(desc_key: str):
+    return dct_price.get(desc_key)
+
+
+def _ru_device_phrase(n: int) -> str:
+    n = abs(int(n))
+    if 11 <= (n % 100) <= 14:
+        w = 'устройств'
+    elif n % 10 == 1:
+        w = 'устройство'
+    elif 2 <= (n % 10) <= 4:
+        w = 'устройства'
+    else:
+        w = 'устройств'
+    return f'{n} {w}'
+
+
+def _ru_month_duration_line(months: int) -> str:
+    n = int(months)
+    if 11 <= (n % 100) <= 14:
+        w = 'месяцев'
+    elif n % 10 == 1:
+        w = 'месяц'
+    elif 2 <= (n % 10) <= 4:
+        w = 'месяца'
+    else:
+        w = 'месяцев'
+    return f'Длительность - {n} {w}'
+
+
+def _ru_days_duration_line(days: int) -> str:
+    n = abs(int(days))
+    if 11 <= (n % 100) <= 14:
+        w = 'дней'
+    elif n % 10 == 1:
+        w = 'день'
+    elif 2 <= (n % 10) <= 4:
+        w = 'дня'
+    else:
+        w = 'дней'
+    return f'Длительность - {n} {w}'
+
+
+def payment_tariff_summary_pro(desc_key: str) -> str:
+    """Текст тарифа PRO перед оплатой: устройства, срок из колбэка, сумма из dct_price."""
+    from tariff_resolve import device_from_tariff_key, tariff_days_for_x3
+
+    price = _price_rub_for_desc_key(desc_key)
+    if price is None:
+        return payment_link_pro_for_hwid(5)
+
+    duration_plain = desc_key.replace('white_', '', 1) if desc_key.startswith('white_') else desc_key
+    devices = device_from_tariff_key(duration_plain)
+    dev_phrase = _ru_device_phrase(devices)
+
+    m = re.fullmatch(r'm(\d+)_d(\d+)', duration_plain)
+    if m:
+        months = int(m.group(1))
+        dur_line = _ru_month_duration_line(months)
+    else:
+        days = tariff_days_for_x3(duration_plain)
+        dur_line = _ru_days_duration_line(days)
+
+    return (
+        f'Тариф — 💫 {dev_phrase}\n'
+        f'{_TARIFF_GEO_LINES}'
+        f'{dev_phrase}, безлимитный трафик.\n'
+        f'{dur_line}\n'
+        f'\n'
+        f'Сумма к оплате - {price}₽'
+    )
+
 
 dct_desc = {
     '3': '✨ Пробный период 3 дня — 1 ₽',
     'r_3': '✨ Пробный период 3 дня — 1 ₽',
-    '30': f'1 месяц — {dct_price["30"]} ₽',
-    '90': f'3 месяца — {dct_price["90"]} ₽{_tariff_savings_suffix(90)}',
-    '365': f'12 месяцев — {dct_price["365"]} ₽{_tariff_savings_suffix(365)}',
-    '240': f'12 месяцев — {dct_price["365"]} ₽{_tariff_savings_suffix(365)}',
-    # 'white_30': '🦾 Ускоритель игр Mobile - 299 руб',
+    'm1_d3': '🔹 1 мес - 3️⃣ устройства - 199 ₽',
+    'm3_d3': '🔹 3 мес - 3️⃣ устройства - 499 ₽ (выгода -16%)',
+    'm6_d3': '🔹 6 мес - 3️⃣ устройства - 999 ₽ (выгода -16%)',
+    'm12_d3': '🔹 12 мес - 3️⃣ устройства - 1188 ₽ (выгода -50%)',
+    'm1_d5': '🔸 1 мес - 5️⃣ устройств - 299 ₽',
+    'm3_d5': '🔸 3 мес - 5️⃣ устройств - 749 ₽ (выгода -16%)',
+    'm6_d5': '🔸 6 мес - 5️⃣ устройств - 1349 ₽ (выгода -25%)',
+    'm12_d5': '🔸 12 мес - 5️⃣ устройств - 1799 ₽ (выгода -50%)',
+    'm1_d10': '🏆 1 мес - 🔟 устройств - 659 ₽',
+    'm3_d10': '🏆 3 мес - 🔟 устройств - 1349 ₽ (выгода -32%)',
+    'm6_d10': '🏆 6 мес - 🔟 устройств - 2399 ₽ (выгода -39%)',
+    'm12_d10': '🏆 12 мес - 🔟 устройств - 3239 ₽ (выгода -59%)',
 }

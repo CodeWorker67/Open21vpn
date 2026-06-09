@@ -209,7 +209,7 @@ async def _handle_youkassa_payment(callback: CallbackQuery, forced_pm: YkForcedP
     method_payload = "yookassa_sbp" if forced_pm == "sbp" else "yookassa_card"
     payload = (
         f"user_id:{user_id},duration:{duration},white:{white_flag},gift:{gift_flag},"
-        f"method:{method_payload},amount:{rub_amount},auto_renew:False"
+        f"method:{method_payload},amount:{rub_amount},device:5,auto_renew:False"
     )
     desc = dct_desc.get(desc_key, f"Open 21 VPN пробный период {duration} дн.")
 
@@ -292,7 +292,7 @@ async def create_youkassa_autorenew_payment(user_id: int, payment_method_id: str
     desc = f"Автопродление Open 21 VPN, {rub} ₽ / 30 дней"[:128]
     payload = (
         f"user_id:{user_id},duration:30,white:False,gift:False,"
-        f"method:yookassa,amount:{rub},auto_renew:True"
+        f"method:yookassa,amount:{rub},device:5,auto_renew:True"
     )
     try:
         pm = await yk_create_payment_redirect(

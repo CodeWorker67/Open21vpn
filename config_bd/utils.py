@@ -2,7 +2,7 @@ import time
 import uuid
 from collections import defaultdict
 
-from sqlalchemy import select, update, func, or_, and_, delete, cast, Date, cast, Date
+from sqlalchemy import select, update, func, or_, and_, delete, cast, Date, literal, union_all, case
 from datetime import datetime, date, timezone, timedelta
 from typing import Optional, List, Tuple, Dict, Any, Set
 
@@ -220,6 +220,45 @@ def user_row_to_api_dict(user: Users) -> Dict[str, Any]:
     for col in Users.__table__.columns:
         out[col.key] = _users_column_value_for_api(getattr(user, col.key))
     return out
+
+
+def pro_subscription_end_active(end_dt: Optional[datetime]) -> bool:
+    if end_dt is None:
+        return False
+    if end_dt.tzinfo is None:
+        aware = end_dt.replace(tzinfo=timezone.utc)
+    else:
+        aware = end_dt.astimezone(timezone.utc)
+    return aware.date() >= datetime.now(timezone.utc).date()
+
+
+def user_has_active_pro_subscription(user: Users) -> bool:
+    """Есть ли активная PRO-подписка хотя бы на одном тарифе (3, 5 или 10 устройств)."""
+    return any(
+        pro_subscription_end_active(dt)
+        for dt in (
+            user.subscription_end_date,
+            user.subscription_3_end_date,
+            user.subscription_10_end_date,
+        )
+    )
+
+
+def resolve_trial_device_slots(user: Users) -> int:
+    """
+    Слот для +7 дней триала:
+    — нет PRO-подписок → 5 устройств;
+    — есть просроченные → тариф с максимальным числом устройств среди просроченных.
+    """
+    tiers = (
+        (5, user.subscription_end_date),
+        (3, user.subscription_3_end_date),
+        (10, user.subscription_10_end_date),
+    )
+    expired = [slots for slots, dt in tiers if dt is not None and not pro_subscription_end_active(dt)]
+    if not expired:
+        return 5
+    return max(expired)
 
 
 def _sum_subscription_end_dates(
@@ -656,6 +695,30 @@ class AsyncSQL:
             await session.execute(stmt)
             await session.commit()
 
+    async def update_subscription_3_end_date(self, user_id: int, end_date: datetime):
+        async with self.session_factory() as session:
+            stmt = update(Users).where(Users.user_id == user_id).values(subscription_3_end_date=end_date)
+            await session.execute(stmt)
+            await session.commit()
+
+    async def update_subscribtion_3(self, user_id: int, subscribtion: Optional[str]):
+        async with self.session_factory() as session:
+            stmt = update(Users).where(Users.user_id == user_id).values(subscribtion_3=subscribtion)
+            await session.execute(stmt)
+            await session.commit()
+
+    async def update_subscription_10_end_date(self, user_id: int, end_date: datetime):
+        async with self.session_factory() as session:
+            stmt = update(Users).where(Users.user_id == user_id).values(subscription_10_end_date=end_date)
+            await session.execute(stmt)
+            await session.commit()
+
+    async def update_subscribtion_10(self, user_id: int, subscribtion: Optional[str]):
+        async with self.session_factory() as session:
+            stmt = update(Users).where(Users.user_id == user_id).values(subscribtion_10=subscribtion)
+            await session.execute(stmt)
+            await session.commit()
+
     async def update_white_subscription(self, user_id: int, value: str):
         """Поле white_subscription: ссылка или shortUuid white-подписки."""
         async with self.session_factory() as session:
@@ -732,78 +795,146 @@ class AsyncSQL:
 
     async def select_rows_for_subscription_expiry_push(
         self, now_utc_naive: datetime, window: timedelta
-    ) -> List[Tuple[int, datetime, bool, Optional[str], Optional[str]]]:
+    ) -> List[Tuple[int, datetime, bool, Optional[str], Optional[str], str]]:
         """
-        Строки для sheduler.time_mes: user_id, subscription_end_date, reserve_field (платный),
-        ttclid, field_str_1 (JSON состояния push).
+        Строки для sheduler.time_mes: user_id, дата окончания ведущей подписки,
+        reserve_field (платный), ttclid, field_str_1, tier ('main'|'3'|'10'|'white').
 
-        Окна как в time_mes (UTC, naive): за 7/3/1 день и за 1 час до end;
-        после end — second_chance (+7 дн) и post-expiry p1..p200 (+3n дн).
+        Ведущая подписка — с самой поздней датой окончания среди непустых полей
+        subscription_end_date, subscription_3_end_date, subscription_10_end_date,
+        white_subscription_end_date. При равной дате: main, затем 3, 10, white.
+        Пуши считаются только по ней (одна строка на пользователя).
         """
         w = window
         now = now_utc_naive
 
-        active_7 = and_(
-            Users.subscription_end_date > now,
-            Users.subscription_end_date > now + timedelta(days=7) - w,
-            Users.subscription_end_date <= now + timedelta(days=7),
-        )
-        active_3 = and_(
-            Users.subscription_end_date > now,
-            Users.subscription_end_date > now + timedelta(days=3) - w,
-            Users.subscription_end_date <= now + timedelta(days=3),
-        )
-        active_1 = and_(
-            Users.subscription_end_date > now,
-            Users.subscription_end_date > now + timedelta(days=1) - w,
-            Users.subscription_end_date <= now + timedelta(days=1),
-        )
-        active_h = and_(
-            Users.subscription_end_date > now,
-            Users.subscription_end_date > now + timedelta(hours=1) - w,
-            Users.subscription_end_date <= now + timedelta(hours=1),
-        )
-        active_cond = or_(active_7, active_3, active_1, active_h)
-
-        post_second = and_(
-            Users.subscription_end_date <= now,
-            Users.subscription_end_date > now - timedelta(days=7) - w,
-            Users.subscription_end_date <= now - timedelta(days=7),
-        )
-        post_pn = []
-        for n in range(1, 201):
-            d = timedelta(days=3 * n)
-            post_pn.append(
-                and_(
-                    Users.subscription_end_date <= now,
-                    Users.subscription_end_date > now - d - w,
-                    Users.subscription_end_date <= now - d,
-                )
+        def _window_or(col):
+            active_7 = and_(
+                col > now,
+                col > now + timedelta(days=7) - w,
+                col <= now + timedelta(days=7),
             )
-        expired_cond = or_(post_second, *post_pn)
+            active_3 = and_(
+                col > now,
+                col > now + timedelta(days=3) - w,
+                col <= now + timedelta(days=3),
+            )
+            active_1 = and_(
+                col > now,
+                col > now + timedelta(days=1) - w,
+                col <= now + timedelta(days=1),
+            )
+            active_h = and_(
+                col > now,
+                col > now + timedelta(hours=1) - w,
+                col <= now + timedelta(hours=1),
+            )
+            active_cond = or_(active_7, active_3, active_1, active_h)
 
+            post_second = and_(
+                col <= now,
+                col > now - timedelta(days=7) - w,
+                col <= now - timedelta(days=7),
+            )
+            post_pn = []
+            for n in range(1, 201):
+                d = timedelta(days=3 * n)
+                post_pn.append(
+                    and_(
+                        col <= now,
+                        col > now - d - w,
+                        col <= now - d,
+                    )
+                )
+            expired_cond = or_(post_second, *post_pn)
+            return or_(active_cond, expired_cond)
+
+        s_main = (
+            select(
+                Users.user_id,
+                literal("main").label("tier"),
+                Users.subscription_end_date.label("end_dt"),
+            )
+            .where(
+                Users.is_delete == False,
+                Users.subscription_end_date.isnot(None),
+            )
+        )
+        s_3 = (
+            select(
+                Users.user_id,
+                literal("3").label("tier"),
+                Users.subscription_3_end_date.label("end_dt"),
+            )
+            .where(
+                Users.is_delete == False,
+                Users.subscription_3_end_date.isnot(None),
+            )
+        )
+        s_10 = (
+            select(
+                Users.user_id,
+                literal("10").label("tier"),
+                Users.subscription_10_end_date.label("end_dt"),
+            )
+            .where(
+                Users.is_delete == False,
+                Users.subscription_10_end_date.isnot(None),
+            )
+        )
+        s_white = (
+            select(
+                Users.user_id,
+                literal("white").label("tier"),
+                Users.white_subscription_end_date.label("end_dt"),
+            )
+            .where(
+                Users.is_delete == False,
+                Users.white_subscription_end_date.isnot(None),
+            )
+        )
+        uend = union_all(s_main, s_3, s_10, s_white).subquery("uend")
+        tier_prio = case(
+            (uend.c.tier == "main", 0),
+            (uend.c.tier == "3", 1),
+            (uend.c.tier == "10", 2),
+            (uend.c.tier == "white", 3),
+            else_=9,
+        )
+        rn = func.row_number().over(
+            partition_by=uend.c.user_id,
+            order_by=(uend.c.end_dt.desc(), tier_prio.asc()),
+        ).label("rn")
+        ranked = select(uend.c.user_id, uend.c.tier, uend.c.end_dt, rn).subquery("ranked")
+        best = (
+            select(ranked.c.user_id, ranked.c.tier, ranked.c.end_dt)
+            .where(ranked.c.rn == 1)
+            .subquery("best")
+        )
+
+        cond = _window_or(best.c.end_dt)
+        stmt = (
+            select(
+                Users.user_id,
+                best.c.end_dt,
+                Users.reserve_field,
+                Users.ttclid,
+                Users.field_str_1,
+                best.c.tier,
+            )
+            .select_from(Users)
+            .join(best, Users.user_id == best.c.user_id)
+            .where(Users.is_delete == False, cond)
+            .order_by(Users.user_id)
+        )
+
+        rows_out: List[Tuple[int, datetime, bool, Optional[str], Optional[str], str]] = []
         async with self.session_factory() as session:
-            stmt = (
-                select(
-                    Users.user_id,
-                    Users.subscription_end_date,
-                    Users.reserve_field,
-                    Users.ttclid,
-                    Users.field_str_1,
-                )
-                .where(
-                    Users.is_delete == False,
-                    Users.subscription_end_date.isnot(None),
-                    or_(active_cond, expired_cond),
-                )
-                .order_by(Users.user_id)
-            )
             result = await session.execute(stmt)
-            rows = result.all()
-            return [
-                (r[0], r[1], bool(r[2]), r[3], r[4])
-                for r in rows
-            ]
+            for r in result.all():
+                rows_out.append((r[0], r[1], bool(r[2]), r[3], r[4], r[5]))
+
+        return rows_out
 
     async def get_last_notification_date(self, user_id: int) -> Optional[date]:
         async with self.session_factory() as session:
@@ -1311,10 +1442,12 @@ class AsyncSQL:
                 await session.rollback()
                 logger.error(f"Error updating broadcast status for user {user_id}: {e}")
 
-    async def activate_gift(self, gift_id: str, recipient_id: int) -> Tuple[bool, Optional[int], Optional[bool]]:
+    async def activate_gift(
+        self, gift_id: str, recipient_id: int
+    ) -> Tuple[bool, Optional[int], Optional[bool], Optional[int], Optional[int]]:
         """
         Активирует подарок по gift_id для указанного получателя.
-        Возвращает (успех, duration, white_flag) или (False, None, None) если подарок не найден или уже активирован.
+        Возвращает (успех, duration, white_flag, giver_id, device_slots) или (False, None, None, None, None).
         """
         async with self.session_factory() as session:
             # Проверяем существование и статус подарка
@@ -1328,7 +1461,10 @@ class AsyncSQL:
 
             if not gift:
                 logger.warning(f"Gift {gift_id} not found or already activated")
-                return False, None, None
+                return False, None, None, None, None
+
+            giver_id = gift.giver_id
+            device_slots = gift.device_slots if gift.device_slots is not None else 5
 
             # Активируем подарок
             gift.flag = True
@@ -1336,11 +1472,11 @@ class AsyncSQL:
             try:
                 await session.commit()
                 logger.info(f"Gift {gift_id} activated for user {recipient_id}")
-                return True, gift.duration, gift.white_flag
+                return True, gift.duration, gift.white_flag, giver_id, int(device_slots)
             except Exception as e:
                 await session.rollback()
                 logger.error(f"Error activating gift {gift_id} for user {recipient_id}: {e}")
-                return False, None, None
+                return False, None, None, None, None
 
     async def get_pending_platega_payments(self) -> List[Payments]:
         """Возвращает все платежи из таблицы payments со статусом 'pending'."""
@@ -1733,7 +1869,9 @@ class AsyncSQL:
                 await session.rollback()
                 logger.error(f"❌ Ошибка записи платежа Telegram Stars: {e}")
 
-    async def create_gift(self, giver_id: int, duration: int, white_flag: bool) -> str:
+    async def create_gift(
+        self, giver_id: int, duration: int, white_flag: bool, device_slots: int = 5
+    ) -> str:
         """Создаёт запись о подарке и возвращает gift_id."""
         gift_id = str(uuid.uuid4())
         async with self.session_factory() as session:
@@ -1743,6 +1881,7 @@ class AsyncSQL:
                 duration=duration,
                 recepient_id=None,
                 white_flag=white_flag,
+                device_slots=device_slots,
                 flag=False
             )
             session.add(gift)
@@ -2202,10 +2341,16 @@ class AsyncSQL:
 
         try:
             from bot import x3
-            from X3 import panel_username_for_site_user
+            from tariff_resolve import panel_username_for_site_user
 
-            await x3.delete_panel_user_by_username(panel_username_for_site_user(old_uid, False))
-            await x3.delete_panel_user_by_username(panel_username_for_site_user(old_uid, True))
+            for white in (False, True):
+                await x3.delete_panel_user_by_username(
+                    panel_username_for_site_user(old_uid, white=white)
+                )
+            for dev in (3, 5, 10):
+                await x3.delete_panel_user_by_username(
+                    panel_username_for_site_user(old_uid, white=False, device_slots=dev)
+                )
 
             row = await self.get_user(telegram_user_id)
             if row:

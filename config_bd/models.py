@@ -24,6 +24,8 @@ class Users(Base):
     in_chanel = Column(Boolean, default=False)
     reserve_field = Column(Boolean, default=False)
     subscription_end_date = Column(DateTime, nullable=True)
+    subscription_3_end_date = Column(DateTime, nullable=True)
+    subscription_10_end_date = Column(DateTime, nullable=True)
     white_subscription_end_date = Column(DateTime, nullable=True)
     last_notification_date = Column(Date, nullable=True)
     last_broadcast_status = Column(String(100), nullable=True)
@@ -31,6 +33,8 @@ class Users(Base):
     stamp = Column(String(100), nullable=False)
     ttclid = Column(String(100), nullable=True)
     subscribtion = Column(String(500), nullable=True)
+    subscribtion_3 = Column(String(500), nullable=True)
+    subscribtion_10 = Column(String(500), nullable=True)
     white_subscription = Column(String(500), nullable=True)
     email = Column(String(255), nullable=True)
     password = Column(String(255), nullable=True)
@@ -60,6 +64,7 @@ class Gifts(Base):
     duration = Column(Integer, nullable=False)
     recepient_id = Column(BigInteger, nullable=True)
     white_flag = Column(Boolean, default=False)
+    device_slots = Column(Integer, default=5)
     flag = Column(Boolean, default=False)
 
 

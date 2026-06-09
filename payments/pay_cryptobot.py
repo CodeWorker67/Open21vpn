@@ -6,9 +6,10 @@ from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, CallbackQu
 from bot import sql
 from config import CRYPTOBOT_API_TOKEN, ADMIN_IDS, BOT_URL
 from keyboard import create_kb, STYLE_PRIMARY
-from lexicon import lexicon, dct_desc, dct_price
+from lexicon import lexicon, payment_tariff_summary_pro, tariff_rub_and_desc
 from logging_config import logger
 from payments.payment_limits import payment_creation_allowed
+from tariff_resolve import tariff_days_for_x3, device_from_tariff_key
 
 router: Router = Router()
 
@@ -93,6 +94,7 @@ async def create_cryptobot_payment(
     duration: str,
     white: bool,
     is_gift: bool,
+    device: int = 5,
     source: Optional[str] = None,
     telegram_username: Optional[str] = None,
 ) -> Dict:
@@ -106,7 +108,7 @@ async def create_cryptobot_payment(
 
     payload = (
         f"user_id:{user_id},duration:{duration},white:{white},"
-        f"gift:{is_gift},method:cryptobot,amount:{rub_amount}"
+        f"gift:{is_gift},method:cryptobot,amount:{rub_amount},device:{device}"
     )
     if source:
         payload += f",source:{source}"
@@ -150,39 +152,37 @@ async def process_payment_crypto(callback: CallbackQuery):
         duration_key = data.replace('crypto_gift_r_', '')
     else:
         duration_key = data.replace('crypto_r_', '')
-    if duration_key == '240':
-        duration_key = '365'
-
-    rub_amount = dct_price[duration_key]
-    desc_key = duration_key
 
     if 'white' in duration_key:
+        duration_plain = duration_key.replace('white_', '', 1)
         white_flag = True
-        duration = duration_key.replace('white_', '')
-    elif 'old' in duration_key:
-        duration = duration_key.replace('old', '')
     else:
-        duration = duration_key
+        duration_plain = duration_key
+
+    rub_amount, des_text = tariff_rub_and_desc(duration_key)
+    days_payload = str(tariff_days_for_x3(duration_plain))
+    device_n = device_from_tariff_key(duration_plain)
 
     if callback.from_user.id in ADMIN_IDS:
         rub_amount = 1
 
     if gift_flag:
-        description = f"Подписка в подарок {dct_desc[desc_key]}"
+        description = f"Подписка в подарок {des_text}"
     else:
-        description = dct_desc[desc_key]
+        description = payment_tariff_summary_pro(duration_key) if not white_flag else lexicon['payment_link_white']
 
     result = await create_cryptobot_payment(
         rub_amount=rub_amount,
         description=description,
         user_id=user_id,
-        duration=duration,
+        duration=days_payload,
         white=white_flag,
-        is_gift=gift_flag
+        is_gift=gift_flag,
+        device=device_n,
     )
 
     if result['status'] == 'pending':
-        text = lexicon['payment_link_white'] if white_flag else lexicon['payment_link']
+        text = lexicon['payment_link_white'] if white_flag else payment_tariff_summary_pro(duration_key)
         if gift_flag:
             text += '\n\nДля оплаты <b>подарочной подписки</b> перейдите по ссылке:'
         else:

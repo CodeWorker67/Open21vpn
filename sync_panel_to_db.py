@@ -1,23 +1,27 @@
 """
-Синхронизация пользователей панели (цифровой username) с БД.
+Синхронизация пользователей панели (username: цифры / цифры_3 / цифры_10) с БД.
 
 Запуск из корня проекта:
     python sync_panel_to_db.py
 """
 import asyncio
+import re
 import sys
 from datetime import datetime, timezone
-from typing import Optional
+from typing import Literal, Optional, Tuple
 
 from X3 import X3
+from config_bd.models import Users
 from config_bd.utils import AsyncSQL, _naive_utc
 from logging_config import logger
 
-# Индексы в кортеже get_user()
-_IDX_SUBSCRIPTION_END_DATE = 9
-_IDX_SUBSCRIBTION = 16
+Tier = Literal["base", "3", "10"]
 
 HOURS_THRESHOLD = 5
+
+_RE_BASE = re.compile(r"^\d+$")
+_RE_3 = re.compile(r"^(\d+)_3$")
+_RE_10 = re.compile(r"^(\d+)_10$")
 
 
 def _configure_stdout_utf8() -> None:
@@ -25,8 +29,25 @@ def _configure_stdout_utf8() -> None:
         sys.stdout.reconfigure(encoding="utf-8")
 
 
-def _is_digits_username(username: str) -> bool:
-    return bool(username) and username.isdigit()
+def _parse_panel_username(username: str) -> Optional[Tuple[int, Tier]]:
+    """
+    Допустимы только username из цифр и '_':
+    — только цифры (базовый тариф);
+    — цифры + '_3';
+    — цифры + '_10'.
+    """
+    username = (username or "").strip()
+    if not username or not all(c.isdigit() or c == "_" for c in username):
+        return None
+    if _RE_BASE.fullmatch(username):
+        return int(username), "base"
+    m3 = _RE_3.fullmatch(username)
+    if m3:
+        return int(m3.group(1)), "3"
+    m10 = _RE_10.fullmatch(username)
+    if m10:
+        return int(m10.group(1)), "10"
+    return None
 
 
 def _panel_expire_to_utc(expire_str: Optional[str]) -> Optional[datetime]:
@@ -67,13 +88,98 @@ def _subscribtion_differs(db_value: Optional[str], short_uuid: Optional[str]) ->
     return db_norm != panel_norm
 
 
+def _tier_db_subscribtion(user: Users, tier: Tier) -> Optional[str]:
+    if tier == "base":
+        return user.subscribtion
+    if tier == "3":
+        return user.subscribtion_3
+    return user.subscribtion_10
+
+
+def _tier_db_end_date(user: Users, tier: Tier) -> Optional[datetime]:
+    if tier == "base":
+        return user.subscription_end_date
+    if tier == "3":
+        return user.subscription_3_end_date
+    return user.subscription_10_end_date
+
+
+async def _update_tier_subscribtion(sql: AsyncSQL, telegram_id: int, tier: Tier, short_uuid: str) -> None:
+    if tier == "base":
+        await sql.update_subscribtion(telegram_id, short_uuid)
+    elif tier == "3":
+        await sql.update_subscribtion_3(telegram_id, short_uuid)
+    else:
+        await sql.update_subscribtion_10(telegram_id, short_uuid)
+
+
+async def _update_tier_end_date(sql: AsyncSQL, telegram_id: int, tier: Tier, end_date: datetime) -> None:
+    if tier == "base":
+        await sql.update_subscription_end_date(telegram_id, end_date)
+    elif tier == "3":
+        await sql.update_subscription_3_end_date(telegram_id, end_date)
+    else:
+        await sql.update_subscription_10_end_date(telegram_id, end_date)
+
+
+async def _apply_tier_on_create(
+    sql: AsyncSQL,
+    telegram_id: int,
+    tier: Tier,
+    short_uuid: str,
+    expire_at_utc: datetime,
+) -> None:
+    await _update_tier_subscribtion(sql, telegram_id, tier, short_uuid)
+    await _update_tier_end_date(sql, telegram_id, tier, expire_at_utc)
+
+
+async def _sync_existing_user(
+    sql: AsyncSQL,
+    user: Users,
+    telegram_id: int,
+    tier: Tier,
+    short_uuid: Optional[str],
+    expire_at_utc: Optional[datetime],
+    stats: dict,
+) -> None:
+    changed_sub = False
+    changed_date = False
+    tier_label = {"base": "", "3": "_3", "10": "_10"}[tier]
+
+    if _subscribtion_differs(_tier_db_subscribtion(user, tier), short_uuid):
+        if not short_uuid:
+            stats["skipped_no_short_uuid"] += 1
+        else:
+            await _update_tier_subscribtion(sql, telegram_id, tier, short_uuid)
+            stats["updated_subscribtion"] += 1
+            changed_sub = True
+            logger.info(
+                f"subscribtion{tier_label}: user_id={telegram_id} "
+                f"'{_tier_db_subscribtion(user, tier)}' -> '{short_uuid}'"
+            )
+
+    if expire_at_utc is None:
+        stats["skipped_no_expire"] += 1
+    elif _dates_differ_more_than_hours(expire_at_utc, _tier_db_end_date(user, tier)):
+        await _update_tier_end_date(sql, telegram_id, tier, expire_at_utc)
+        stats["updated_subscription_end_date"] += 1
+        changed_date = True
+        logger.info(
+            f"subscription{tier_label}_end_date: user_id={telegram_id} "
+            f"db={_tier_db_end_date(user, tier)} panel={expire_at_utc}"
+        )
+
+    if not changed_sub and not changed_date:
+        stats["unchanged_in_db"] += 1
+
+
 async def sync_panel_to_db() -> dict:
     x3 = X3()
     sql = AsyncSQL()
     stats = {
         "panel_total": 0,
-        "skipped_non_digit_username": 0,
-        "processed_digit_username": 0,
+        "skipped_non_matching_username": 0,
+        "processed_matching_username": 0,
         "unchanged_in_db": 0,
         "updated_subscribtion": 0,
         "updated_subscription_end_date": 0,
@@ -90,80 +196,61 @@ async def sync_panel_to_db() -> dict:
 
         for panel_user in panel_users:
             username = str(panel_user.get("username") or "").strip()
-            if not _is_digits_username(username):
-                stats["skipped_non_digit_username"] += 1
+            parsed = _parse_panel_username(username)
+            if parsed is None:
+                stats["skipped_non_matching_username"] += 1
                 continue
 
-            stats["processed_digit_username"] += 1
-            telegram_id = int(username)
+            stats["processed_matching_username"] += 1
+            telegram_id, tier = parsed
             short_uuid = panel_user.get("shortUuid")
             expire_at_utc = _panel_expire_to_utc(panel_user.get("expireAt"))
             traffic = panel_user.get("userTraffic") or {}
             first_connected = traffic.get("firstConnectedAt")
             is_connected = first_connected is not None
 
-            user_row = await sql.get_user(telegram_id)
+            user = await sql.get_user_object_by_user_id(telegram_id)
 
-            if user_row is not None:
-                changed_sub = False
-                changed_date = False
-
-                if _subscribtion_differs(user_row[_IDX_SUBSCRIBTION], short_uuid):
-                    if not short_uuid:
-                        stats["skipped_no_short_uuid"] += 1
-                    else:
-                        await sql.update_subscribtion(telegram_id, short_uuid)
-                        stats["updated_subscribtion"] += 1
-                        changed_sub = True
-                        logger.info(
-                            f"subscribtion: user_id={telegram_id} "
-                            f"'{user_row[_IDX_SUBSCRIBTION]}' -> '{short_uuid}'"
-                        )
-
-                if expire_at_utc is None:
-                    stats["skipped_no_expire"] += 1
-                elif _dates_differ_more_than_hours(
-                    expire_at_utc, user_row[_IDX_SUBSCRIPTION_END_DATE]
-                ):
-                    await sql.update_subscription_end_date(telegram_id, expire_at_utc)
-                    stats["updated_subscription_end_date"] += 1
-                    changed_date = True
-                    logger.info(
-                        f"subscription_end_date: user_id={telegram_id} "
-                        f"db={user_row[_IDX_SUBSCRIPTION_END_DATE]} panel={expire_at_utc}"
-                    )
-
-                if not changed_sub and not changed_date:
-                    stats["unchanged_in_db"] += 1
+            if user is not None:
+                await _sync_existing_user(
+                    sql, user, telegram_id, tier, short_uuid, expire_at_utc, stats
+                )
                 continue
 
-            # Пользователя нет в БД — создаём
             if not short_uuid:
                 stats["skipped_no_short_uuid"] += 1
-                logger.warning(f"Пропуск создания {telegram_id}: нет shortUuid в панели")
+                logger.warning(
+                    f"Пропуск создания {telegram_id} (tier={tier}): нет shortUuid в панели"
+                )
                 stats["create_errors"] += 1
                 continue
             if expire_at_utc is None:
                 stats["skipped_no_expire"] += 1
-                logger.warning(f"Пропуск создания {telegram_id}: нет expireAt в панели")
+                logger.warning(
+                    f"Пропуск создания {telegram_id} (tier={tier}): нет expireAt в панели"
+                )
                 stats["create_errors"] += 1
                 continue
 
-            await sql.add_user(telegram_id, in_panel=True, is_connect=is_connected)
-            await sql.update_subscribtion(telegram_id, short_uuid)
-            await sql.update_subscription_end_date(telegram_id, expire_at_utc)
+            inserted = await sql.add_user(telegram_id, in_panel=True, is_connect=is_connected)
+            await _apply_tier_on_create(sql, telegram_id, tier, short_uuid, expire_at_utc)
 
-            # Проверяем, что запись появилась
-            if await sql.get_user(telegram_id) is None:
+            if await sql.get_user_object_by_user_id(telegram_id) is None:
                 stats["create_errors"] += 1
                 logger.error(f"Не удалось создать пользователя {telegram_id} в БД")
                 continue
 
-            stats["created_users"] += 1
-            logger.info(
-                f"Создан user_id={telegram_id} in_panel=True is_connect={is_connected} "
-                f"subscribtion={short_uuid} subscription_end_date={expire_at_utc}"
-            )
+            if inserted:
+                stats["created_users"] += 1
+                logger.info(
+                    f"Создан user_id={telegram_id} in_panel=True is_connect={is_connected} "
+                    f"tier={tier} subscribtion={short_uuid} end_date={expire_at_utc}"
+                )
+            else:
+                logger.info(
+                    f"Пользователь {telegram_id} уже был в БД (гонка/другая запись панели), "
+                    f"применены поля tier={tier}"
+                )
 
     finally:
         await x3.close()
@@ -175,20 +262,29 @@ def _print_report(stats: dict) -> None:
     print("\n" + "=" * 60)
     print("ОТЧЁТ: sync_panel_to_db")
     print("=" * 60)
-    print(f"Всего в панели:                    {stats['panel_total']}")
-    print(f"Пропущено (username не из цифр):   {stats['skipped_non_digit_username']}")
-    print(f"Обработано (цифровой username):    {stats['processed_digit_username']}")
+    print(f"Всего в панели:                         {stats['panel_total']}")
+    print(
+        f"Пропущено (username не цифры/_3/_10):   "
+        f"{stats['skipped_non_matching_username']}"
+    )
+    print(f"Обработано (подходящий username):       {stats['processed_matching_username']}")
     print("-" * 60)
-    print(f"1. В БД, данные не менялись:       {stats['unchanged_in_db']}")
-    print(f"2. Обновлено subscribtion:         {stats['updated_subscribtion']}")
-    print(f"3. Обновлено subscription_end_date:{stats['updated_subscription_end_date']}")
-    print(f"4. Создано пользователей:          {stats['created_users']}")
+    print(f"1. В БД, данные не менялись:            {stats['unchanged_in_db']}")
+    print(
+        f"2. Обновлено subscribtion / _3 / _10:   {stats['updated_subscribtion']}"
+    )
+    print(
+        f"3. Обновлено subscription_end_date "
+        f"/ _3 / _10:  {stats['updated_subscription_end_date']}"
+    )
+    print(f"4. Создано пользователей:               {stats['created_users']}")
     if stats["create_errors"]:
-        print(f"Ошибок/пропусков при создании:     {stats['create_errors']}")
+        print(f"Ошибок/пропусков при создании:          {stats['create_errors']}")
     if stats["skipped_no_short_uuid"] or stats["skipped_no_expire"]:
         print(
-            f"Пропуски (нет shortUuid/expireAt): "
-            f"shortUuid={stats['skipped_no_short_uuid']}, expireAt={stats['skipped_no_expire']}"
+            f"Пропуски (нет shortUuid/expireAt):      "
+            f"shortUuid={stats['skipped_no_short_uuid']}, "
+            f"expireAt={stats['skipped_no_expire']}"
         )
     print("=" * 60 + "\n")
 

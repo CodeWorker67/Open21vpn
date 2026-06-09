@@ -5,7 +5,7 @@ import hashlib
 import hmac
 import uuid
 from pprint import pprint
-from typing import List
+from typing import List, Optional, Tuple
 
 import urllib3
 import aiohttp
@@ -25,12 +25,7 @@ import string
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 
-def panel_username_for_site_user(db_user_id: int, is_white: bool) -> str:
-    n = int(db_user_id)
-    base = str(n)
-    if len(base) < 3:
-        base = f"n{n}"
-    return f"{base}_white" if is_white else base
+from tariff_resolve import panel_username_for_site_user  # noqa: F401 — re-export
 
 
 class X3:
@@ -67,17 +62,47 @@ class X3:
         if self._session and not self._session.closed:
             await self._session.close()
 
-    def generate_client_id(self, tg_id):
-        """shortUuid: HMAC-SHA256(секрет, tg_id), 15 символов; white — тот же метод с tg_id*100."""
+    def generate_client_id(self, tg_id, panel_username: str) -> str:
+        """shortUuid: HMAC от panel_username (разные слоты — разные id); white — как раньше по tg_id*100."""
         if not SHORT_UUID_SECRET:
             raise ValueError(
                 "SHORT_UUID_SECRET не задан в окружении (.env) — нужен для генерации shortUuid"
             )
         key = SHORT_UUID_SECRET.encode("utf-8")
-        msg = str(int(tg_id)).encode("utf-8")
+        if 'white' in panel_username:
+            msg = str(int(tg_id) * 100).encode("utf-8")
+        else:
+            msg = panel_username.encode("utf-8")
         digest = hmac.new(key, msg, hashlib.sha256).digest()
         token = base64.urlsafe_b64encode(digest).decode("ascii").rstrip("=")
         return token[:15]
+
+    async def _persist_subscription_db(
+        self,
+        sql_inst: AsyncSQL,
+        user_id: int,
+        user_id_str: str,
+        subscription_end_date: datetime.datetime,
+        *,
+        client_id: Optional[str] = None,
+    ) -> None:
+        """Сохраняем окончание подписки (и shortUuid при создании клиента) по образцу username в панели."""
+        if 'white' in user_id_str:
+            await sql_inst.update_white_subscription_end_date(user_id, subscription_end_date)
+            if client_id is not None:
+                await sql_inst.update_white_subscription(user_id, client_id)
+        elif user_id_str.endswith('_3'):
+            await sql_inst.update_subscription_3_end_date(user_id, subscription_end_date)
+            if client_id is not None:
+                await sql_inst.update_subscribtion_3(user_id, client_id)
+        elif user_id_str.endswith('_10'):
+            await sql_inst.update_subscription_10_end_date(user_id, subscription_end_date)
+            if client_id is not None:
+                await sql_inst.update_subscribtion_10(user_id, client_id)
+        else:
+            await sql_inst.update_subscription_end_date(user_id, subscription_end_date)
+            if client_id is not None:
+                await sql_inst.update_subscribtion(user_id, client_id)
 
     def list_from_host(self, host):
         """Заглушка для совместимости со старым кодом"""
@@ -127,12 +152,18 @@ class X3:
             return datetime.timedelta(minutes=minutes)
         return datetime.timedelta(days=day)
 
-    async def addClient(self, day, user_id_str, user_id, *, minutes: int | None = None):
+    async def addClient(
+        self,
+        day,
+        user_id_str,
+        user_id,
+        *,
+        minutes: int | None = None,
+        hwid_device_limit: Optional[int] = None,
+    ):
         """Добавляет нового клиента. minutes — альтернатива day (для короткого пробного периода)."""
         try:
-            client_id = self.generate_client_id(user_id)
-            if 'white' in user_id_str:
-                client_id = self.generate_client_id(user_id * 100)
+            client_id = self.generate_client_id(user_id, user_id_str)
             current_time = datetime.datetime.now(datetime.timezone.utc)
             expire_time = current_time + self._subscription_delta(day=day, minutes=minutes)
             vless_uuid = str(uuid.uuid1())
@@ -149,7 +180,7 @@ class X3:
                 squad = random.choice([squad_1, squad_2])
                 trafficLimitStrategy = "NO_RESET"
                 trafficLimitBytes = 0
-                hwidDeviceLimit = 5
+                hwidDeviceLimit = 5 if hwid_device_limit is None else int(hwid_device_limit)
             desc = 'Open21VPN'
             data = {
                 "username": user_id_str,
@@ -187,23 +218,17 @@ class X3:
                         # Сервер мог не вернуть JSON, но статус успешный
                         logger.warning(f"Не удалось прочитать JSON при добавлении {user_id}: {e}. Считаем успехом.")
                         subscription_end_date = expire_time.replace(tzinfo=datetime.timezone.utc)
-                        if 'white' in user_id_str:
-                            await sql.update_white_subscription_end_date(user_id, subscription_end_date)
-                            await sql.update_white_subscription(user_id, client_id)
-                        else:
-                            await sql.update_subscription_end_date(user_id, subscription_end_date)
-                            await sql.update_subscribtion(user_id, client_id)
+                        await self._persist_subscription_db(
+                            sql, user_id, user_id_str, subscription_end_date, client_id=client_id
+                        )
                         logger.info(f"✅ Клиент {user_id} успешно добавлен (без JSON)")
                         return True
                     else:
                         if response_data.get("success", True):
                             subscription_end_date = expire_time.replace(tzinfo=datetime.timezone.utc)
-                            if 'white' in user_id_str:
-                                await sql.update_white_subscription_end_date(user_id, subscription_end_date)
-                                await sql.update_white_subscription(user_id, client_id)
-                            else:
-                                await sql.update_subscription_end_date(user_id, subscription_end_date)
-                                await sql.update_subscribtion(user_id, client_id)
+                            await self._persist_subscription_db(
+                                sql, user_id, user_id_str, subscription_end_date, client_id=client_id
+                            )
                             logger.info(f"✅ Клиент {user_id} успешно добавлен")
                             return True
                         else:
@@ -295,18 +320,12 @@ class X3:
                         response_data = await response.json()
                     except (aiohttp.ClientConnectionError, aiohttp.ContentTypeError, ValueError) as e:
                         logger.warning(f"Не удалось прочитать JSON при обновлении {user_id}: {e}. Считаем успехом.")
-                        if 'white' in user_id_str:
-                            await sql.update_white_subscription_end_date(user_id, new_expire_at)
-                        else:
-                            await sql.update_subscription_end_date(user_id, new_expire_at)
+                        await self._persist_subscription_db(sql, user_id, user_id_str, new_expire_at)
                         logger.info(f"✅ Клиент {user_id} успешно обновлён (без JSON), добавлено {day} дней")
                         return True
                     else:
                         if response_data.get("success", True):
-                            if 'white' in user_id_str:
-                                await sql.update_white_subscription_end_date(user_id, new_expire_at)
-                            else:
-                                await sql.update_subscription_end_date(user_id, new_expire_at)
+                            await self._persist_subscription_db(sql, user_id, user_id_str, new_expire_at)
                             logger.info(f"✅ Клиент {user_id} успешно обновлён, добавлено {day} дней")
                             return True
                         else:
@@ -388,6 +407,24 @@ class X3:
         except Exception as e:
             logger.error(f"Ошибка получения пользователя по telegram_id {telegram_id}: {e}")
             return None
+
+    async def active_subscription_links(self, telegram_id: int) -> List[Tuple[str, str]]:
+        """Все активные клиенты в панели: id, id_3, id_10, id_white."""
+        slots: Tuple[Tuple[str, str], ...] = (
+            (str(telegram_id), "💫 Подписка · 5 устройств"),
+            (f"{telegram_id}_3", "💫 Подписка · 3 устройства"),
+            (f"{telegram_id}_10", "💫 Подписка · 10 устройств"),
+            (f"{telegram_id}_white", "🦾 Мобильный тариф"),
+        )
+        out: List[Tuple[str, str]] = []
+        for username, label in slots:
+            st = await self.activ(username)
+            if not st.get("activ", "").startswith("✅"):
+                continue
+            url = await self.sublink(username)
+            if url:
+                out.append((label, url))
+        return out
 
     async def sublink(self, user_id: str):
         try:

@@ -14,7 +14,7 @@ from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKe
 from aiogram.filters import Command
 
 from sheduler.check_connect import check_connect
-from X3 import panel_username_for_site_user
+from tariff_resolve import panel_username, panel_username_for_site_user
 
 router = Router()
 
@@ -51,7 +51,19 @@ def _panel_usernames_from_row(row: tuple) -> tuple[str, str]:
         s = str(tg)
         return s, f"{s}_white"
     db_uid = int(tg_col)
-    return panel_username_for_site_user(db_uid, False), panel_username_for_site_user(db_uid, True)
+    return panel_username_for_site_user(db_uid, white=False), panel_username_for_site_user(db_uid, white=True)
+
+
+def _panel_usernames_by_device(user) -> dict[int, str]:
+    uid = int(user.user_id)
+    return {
+        3: panel_username(uid, white=False, device_slots=3) if uid > 0
+        else panel_username_for_site_user(uid, white=False, device_slots=3),
+        5: panel_username(uid, white=False, device_slots=5) if uid > 0
+        else panel_username_for_site_user(uid, white=False, device_slots=5),
+        10: panel_username(uid, white=False, device_slots=10) if uid > 0
+        else panel_username_for_site_user(uid, white=False, device_slots=10),
+    }
 
 
 def _split_long_text(text: str, limit: int = 3800) -> list[str]:
@@ -156,20 +168,26 @@ async def pay_info_command(message: Message):
         await message.answer("❌ ID должен быть числом.")
         return
 
-    user_row = await sql.get_user(target_id)
-    if not user_row:
+    user = await sql.get_user_object_by_user_id(target_id)
+    if not user:
         await message.answer(f"❌ Пользователь {target_id} не найден в базе данных.")
         return
 
-    reg_un, _ = _panel_usernames_from_row(user_row)
-    sub_db = user_row[9]
+    usernames = _panel_usernames_by_device(user)
+    panel_lines: dict[int, str] = {}
+    for device_slots in (3, 5, 10):
+        try:
+            ar = await x3.activ(usernames[device_slots])
+            panel_lines[device_slots] = _panel_sub_line(ar)
+        except Exception as e:
+            logger.exception("/pay: панель %s устройств", device_slots)
+            panel_lines[device_slots] = f"Ошибка: {e}"
 
-    try:
-        ar_reg = await x3.activ(reg_un)
-    except Exception as e:
-        logger.exception("/pay: панель")
-        await message.answer(f"❌ Ошибка запроса к панели: {e}")
-        return
+    db_dates = {
+        3: user.subscription_3_end_date,
+        5: user.subscription_end_date,
+        10: user.subscription_10_end_date,
+    }
 
     pay_rows = await sql.get_user_subscription_payment_report(target_id)
     pay_lines: list[str] = []
@@ -183,8 +201,12 @@ async def pay_info_command(message: Message):
 
     body = (
         f"<b>/pay {target_id}</b>\n\n"
-        f"Подписка в БД бота — {_msk_dt_str(sub_db)}\n"
-        f"Подписка в панели — {_panel_sub_line(ar_reg)}\n\n"
+        f"Подписка в БД бота 3 устройства — {_msk_dt_str(db_dates[3])}\n"
+        f"Подписка в панели — 3 устройства — {panel_lines[3]}\n"
+        f"Подписка в БД бота 5 устройства — {_msk_dt_str(db_dates[5])}\n"
+        f"Подписка в панели — 5 устройства — {panel_lines[5]}\n"
+        f"Подписка в БД бота 10 устройства — {_msk_dt_str(db_dates[10])}\n"
+        f"Подписка в панели — 10 устройства — {panel_lines[10]}\n\n"
         f"<b>Платежи:</b>\n"
     )
     if pay_lines:

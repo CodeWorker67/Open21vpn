@@ -7,19 +7,12 @@ from logging_config import logger
 
 from aiogram import Router, F
 from aiogram.types import CallbackQuery, LabeledPrice, PreCheckoutQuery, Message
-from lexicon import lexicon
+from lexicon import dct_price, lexicon, payment_tariff_summary_pro
 from payments.process_payload import process_confirmed_payment
+from tariff_resolve import tariff_days_for_x3, device_from_tariff_key
 
 
 router: Router = Router()
-
-
-def get_stars_amount(currency: str, duration: str) -> float:
-    """Возвращает цену для тарифа в указанной криптовалюте"""
-    prices = {
-        'Stars': {'30': 349, '90': 749, '365': 1799, '240': 1799, 'white_30': 299}
-    }
-    return prices.get(currency, {}).get(duration, 0)
 
 
 async def send_stars_subscription_invoice(
@@ -29,19 +22,22 @@ async def send_stars_subscription_invoice(
     stars_amount: int,
     white_flag: bool,
     gift_flag: bool,
+    device_n: int = 5,
     source: Optional[str] = None,
+    description: Optional[str] = None,
 ) -> None:
     """Счёт Stars в Telegram (бот должен быть запущен с polling / webhook)."""
     user_id = str(chat_id)
     payload = (
         f"user_id:{user_id},duration:{duration_days_str},white:{white_flag},"
-        f"gift:{gift_flag},method:stars,amount:{stars_amount}"
+        f"gift:{gift_flag},method:stars,amount:{stars_amount},device:{device_n}"
     )
     if source:
         payload += f",source:{source}"
     prices = [LabeledPrice(label="XTR", amount=stars_amount)]
     title = f"Оплата подписки {'в подарок другу ' if gift_flag else ''}на {duration_days_str} дней."
-    description = lexicon['payment_link_white'] if white_flag else lexicon['payment_link']
+    if description is None:
+        description = lexicon['payment_link_white'] if white_flag else lexicon['payment_link']
     await bot.send_invoice(
         chat_id,
         title=title,
@@ -61,26 +57,34 @@ async def process_payment_stars(callback: CallbackQuery):
     if 'gift_' in callback.data:
         gift_flag = True
     duration_key = callback.data.replace('stars_r_', '').replace('stars_gift_r_', '')
-    if duration_key == '240':
-        duration_key = '365'
 
-    stars_amount = int(get_stars_amount('Stars', duration_key))
+    white_flag = False
+    if 'white' in duration_key:
+        duration_plain = duration_key.replace('white_', '', 1)
+        white_flag = True
+    else:
+        duration_plain = duration_key
+
+    stars_amount = int(dct_price.get(duration_key, 0))
     if callback.from_user.id in ADMIN_IDS:
         stars_amount = 1
 
-    duration_days = duration_key
-    if 'white' in duration_days:
-        duration_days = duration_days.replace('white_', '')
-        white_flag = True
-    if 'old' in duration_days:
-        duration_days = duration_days.replace('old', '')
+    days_payload = str(tariff_days_for_x3(duration_plain))
+    device_n = device_from_tariff_key(duration_plain)
+
+    if white_flag:
+        description = lexicon['payment_link_white']
+    else:
+        description = payment_tariff_summary_pro(duration_key)
 
     await send_stars_subscription_invoice(
         callback.from_user.id,
-        duration_days_str=duration_days,
+        duration_days_str=days_payload,
         stars_amount=stars_amount,
         white_flag=white_flag,
         gift_flag=gift_flag,
+        device_n=device_n,
+        description=description,
     )
 
 
