@@ -1,7 +1,8 @@
 from aiogram import Router, F
 from aiogram.types import CallbackQuery, InputMediaPhoto
 
-from bot import sql, x3
+from bot import x3
+from X3 import SUBSCRIPTION_SLOTS, panel_username_for_telegram_slot
 from keyboard import (
     keyboard_import_os,
     keyboard_import_app,
@@ -106,42 +107,44 @@ async def import_select_app(callback: CallbackQuery):
     (F.data.endswith('_happ') | F.data.endswith('_v2'))
 )
 async def import_select_sub(callback: CallbackQuery):
-    user_data = await sql.get_user(callback.from_user.id)
-    has_casual = has_white = False
-    if user_data and user_data[9]:   # casual_subscription_end_date
-        has_casual = True
-    if user_data and user_data[10]:  # white_subscription_end_date
-        has_white = True
+    await callback.answer()
+    subscriptions = await x3.active_subscription_slots(callback.from_user.id)
 
-    if not has_casual and not has_white:
-        await callback.answer()
+    if not subscriptions:
         await callback.message.answer(
             text=lexicon['no_sub'],
             reply_markup=create_kb(1, back_to_main='🔙 Назад')
         )
         return
 
-    await callback.answer()
     await callback.message.answer(
         text=lexicon['import_select_sub'],
-        reply_markup=keyboard_import_sub(callback.data, has_casual, has_white)
+        reply_markup=keyboard_import_sub(callback.data, subscriptions)
     )
+
+
+_IMPORT_SUB_SLOTS = {slot for slot, _ in SUBSCRIPTION_SLOTS}
 
 
 @router.callback_query(
     F.data.startswith('import_') &
-    (F.data.endswith('_casual') | F.data.endswith('_white'))
+    F.data.split('_')[-1].in_(_IMPORT_SUB_SLOTS)
 )
 async def import_end(callback: CallbackQuery):
     await callback.answer()
-    user_id = str(callback.from_user.id)
 
-    if callback.data.endswith('_white'):
-        sub_url = await x3.sublink(user_id + '_white')
-        label = '🦾 Мобильный тариф'
-    else:
-        sub_url = await x3.sublink(user_id)
-        label = '💫 VPN PRO'
+    parts = callback.data.split('_')
+    if len(parts) < 4:
+        return
+
+    os_key = parts[1]
+    app_key = parts[2]
+    slot = parts[3]
+    labels = dict(SUBSCRIPTION_SLOTS)
+    label = labels.get(slot, slot)
+
+    username = panel_username_for_telegram_slot(callback.from_user.id, slot)
+    sub_url = await x3.sublink(username)
 
     if not sub_url:
         await callback.message.answer(
@@ -149,10 +152,6 @@ async def import_end(callback: CallbackQuery):
             reply_markup=create_kb(1, back_to_main='🔙 Назад')
         )
         return
-
-    parts = callback.data.split('_')
-    os_key = parts[1]
-    app_key = parts[2]
 
     urls = IMPORT_URLS[os_key][app_key]
     url_app = urls['url_app']

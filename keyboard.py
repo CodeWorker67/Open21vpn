@@ -363,24 +363,15 @@ def keyboard_import_app(os_callback: str):
     )
 
 
-def keyboard_import_sub(app_callback: str, has_casual: bool, has_white: bool):
+def keyboard_import_sub(app_callback: str, subscriptions: list[tuple[str, str]]):
+    """subscriptions: (slot_key, текст кнопки)."""
     buttons = []
-    if has_casual:
+    for slot, label in subscriptions:
         buttons.append(
             [
                 InlineKeyboardButton(
-                    text="💫 Ваша подписка на VPN",
-                    callback_data=f"{app_callback}_casual",
-                    style=STYLE_PRIMARY,
-                )
-            ]
-        )
-    if has_white:
-        buttons.append(
-            [
-                InlineKeyboardButton(
-                    text="🦾 Мобильный тариф",
-                    callback_data=f"{app_callback}_white",
+                    text=label[:64],
+                    callback_data=f"{app_callback}_{slot}",
                     style=STYLE_PRIMARY,
                 )
             ]

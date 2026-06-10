@@ -27,6 +27,23 @@ urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 from tariff_resolve import panel_username_for_site_user  # noqa: F401 — re-export
 
+SUBSCRIPTION_SLOTS: Tuple[Tuple[str, str], ...] = (
+    ("main", "💫 Подписка · 5 устройств"),
+    ("3", "💫 Подписка · 3 устройства"),
+    ("10", "💫 Подписка · 10 устройств"),
+    ("white", "🦾 Мобильный тариф"),
+)
+
+
+def panel_username_for_telegram_slot(telegram_id: int, slot: str) -> str:
+    if slot == "white":
+        return f"{telegram_id}_white"
+    if slot == "3":
+        return f"{telegram_id}_3"
+    if slot == "10":
+        return f"{telegram_id}_10"
+    return str(telegram_id)
+
 
 class X3:
     def __init__(self):
@@ -408,19 +425,21 @@ class X3:
             logger.error(f"Ошибка получения пользователя по telegram_id {telegram_id}: {e}")
             return None
 
+    async def active_subscription_slots(self, telegram_id: int) -> List[Tuple[str, str]]:
+        """Активные подписки в панели: (slot_key, label)."""
+        out: List[Tuple[str, str]] = []
+        for slot, label in SUBSCRIPTION_SLOTS:
+            username = panel_username_for_telegram_slot(telegram_id, slot)
+            st = await self.activ(username)
+            if st.get("activ", "").startswith("✅"):
+                out.append((slot, label))
+        return out
+
     async def active_subscription_links(self, telegram_id: int) -> List[Tuple[str, str]]:
         """Все активные клиенты в панели: id, id_3, id_10, id_white."""
-        slots: Tuple[Tuple[str, str], ...] = (
-            (str(telegram_id), "💫 Подписка · 5 устройств"),
-            (f"{telegram_id}_3", "💫 Подписка · 3 устройства"),
-            (f"{telegram_id}_10", "💫 Подписка · 10 устройств"),
-            (f"{telegram_id}_white", "🦾 Мобильный тариф"),
-        )
         out: List[Tuple[str, str]] = []
-        for username, label in slots:
-            st = await self.activ(username)
-            if not st.get("activ", "").startswith("✅"):
-                continue
+        for slot, label in await self.active_subscription_slots(telegram_id):
+            username = panel_username_for_telegram_slot(telegram_id, slot)
             url = await self.sublink(username)
             if url:
                 out.append((label, url))
